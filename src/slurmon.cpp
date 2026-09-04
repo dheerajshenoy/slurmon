@@ -63,8 +63,34 @@ Slurmon::init_ui() noexcept
         auto left_pane = window(text(" Jobs ") | bold, vbox(std::move(rows)))
                          | flex;
 
-        auto right_pane = vbox({window(text("Details") | bold,
-                                       text("select a job to see details")),
+        Element details;
+        if (m_selected_row >= 0
+            && m_selected_row < static_cast<int>(m_jobs.size()))
+        {
+            const auto &j = m_jobs[m_selected_row];
+            auto field    = [](const std::string &label, const std::string &val)
+            {
+                return hbox({
+                    text(label) | bold | size(WIDTH, EQUAL, 10),
+                    text(val),
+                });
+            };
+            details = vbox({
+                field("ID:", j.id()),
+                field("Name:", j.name()),
+                field("State:", j.state()),
+                field("User:", j.user()),
+                field("Time:", j.time()),
+                field("Nodes:", j.nodes()),
+                field("Nodelist:", j.nodelist_or_reason()),
+            });
+        }
+        else
+        {
+            details = text("select a job to see details") | dim;
+        }
+
+        auto right_pane = vbox({window(text("Details") | bold, details),
                                 window(text("Logs") | bold,
                                        text("select a job to see logs"))
                                     | flex})
@@ -144,17 +170,11 @@ Slurmon::build_row(const Job &job, bool selected)
     auto row = hbox({
         cell(job.id(), 8),
         separator(),
-        cell(job.name(), 24),
+        cell(job.name(), 24) | flex,
         separator(),
         cell(job.state(), 12),
         separator(),
-        cell(job.user(), 12),
-        separator(),
         cell(job.time(), 12),
-        separator(),
-        cell(job.nodes(), 6),
-        separator(),
-        text(" " + job.nodelist_or_reason()) | flex,
     });
 
     if (selected)
