@@ -1,6 +1,8 @@
 #include "slurmon.hpp"
 
 #include <chrono>
+#include <deque>
+#include <fstream>
 #include <iostream>
 #include <memory>
 #include <sstream>
@@ -111,14 +113,58 @@ Slurmon::init_ui() noexcept
             details = text("select a job to see details") | dim;
         }
 
+        Element log_content;
+        std::string log_title = m_show_stderr ? " Logs (stderr) "
+                                              : " Logs (stdout) ";
+        if (m_selected_row >= 0
+            && m_selected_row < static_cast<int>(m_jobs.size()))
+        {
+            const auto &j     = m_jobs[m_selected_row];
+            const auto &paths = log_paths_for(j.id());
+            const std::string &path = m_show_stderr ? paths.stderr_path
+                                                    : paths.stdout_path;
+
+            if (path.empty())
+            {
+                log_content = text("no log path reported for this job") | dim;
+            }
+            else
+            {
+                auto tail = read_tail(path, 500);
+                if (tail.empty())
+                {
+                    log_content = vbox({
+                        text(path) | dim,
+                        text("(empty or unreadable)") | dim,
+                    });
+                }
+                else
+                {
+                    Elements lines;
+                    std::istringstream ss(tail);
+                    std::string line;
+                    while (std::getline(ss, line))
+                        lines.push_back(text(line));
+                    log_content = vbox(std::move(lines))
+                                  | focusPositionRelative(0, 1) | frame;
+                }
+            }
+        }
+        else
+        {
+            log_content = text("select a job to see logs") | dim;
+        }
+
         auto right_pane = vbox({window(text(" Details ") | bold, details),
-                                window(text(" Logs ") | bold,
-                                       text("select a job to see logs"))
+                                window(text(log_title) | bold, log_content)
                                     | flex})
                           | size(WIDTH, GREATER_THAN, 40) | flex;
 
         auto footer = m_show_footer
-                          ? (text("j/k to navigate, q to quit") | dim | center)
+                          ? (text(std::string("j/k navigate, e toggle ")
+                                  + (m_show_stderr ? "stdout" : "stderr")
+                                  + ", q quit")
+                             | dim | center)
                           : text("");
 
         return vbox({hbox({
@@ -153,6 +199,12 @@ Slurmon::init_ui() noexcept
                 return true;
             }
             return false;
+        }
+
+        if (event == Event::Character('e'))
+        {
+            m_show_stderr = !m_show_stderr;
+            return true;
         }
 
         if (event == Event::Character('q'))
@@ -275,4 +327,71 @@ Slurmon::fetch_jobs()
     }
 
     return jobs;
+}
+
+Slurmon::LogPaths
+Slurmon::fetch_log_paths(const std::string &job_id)
+{
+    LogPaths result;
+
+    std::string cmd = "scontrol show job " + job_id + " 2>/dev/null";
+    std::unique_ptr<FILE, decltype(&pclose)> pipe(popen(cmd.c_str(), "r"),
+                                                  pclose);
+    if (!pipe)
+        return result;
+
+    std::array<char, 512> buffer;
+    std::string output;
+    while (std::fgets(buffer.data(), buffer.size(), pipe.get()) != nullptr)
+        output += buffer.data();
+    pclose(pipe.release());
+
+    auto extract = [&](const std::string &key) -> std::string
+    {
+        auto pos = output.find(key);
+        if (pos == std::string::npos)
+            return {};
+        pos += key.size();
+        auto end = output.find_first_of(" \n\t", pos);
+        return output.substr(pos, end - pos);
+    };
+
+    result.stdout_path = extract("StdOut=");
+    result.stderr_path = extract("StdErr=");
+    return result;
+}
+
+std::string
+Slurmon::read_tail(const std::string &path, size_t max_lines)
+{
+    std::ifstream in(path);
+    if (!in)
+        return {};
+
+    std::deque<std::string> lines;
+    std::string line;
+    while (std::getline(in, line))
+    {
+        lines.push_back(std::move(line));
+        if (lines.size() > max_lines)
+            lines.pop_front();
+    }
+
+    std::string out;
+    for (auto &l : lines)
+    {
+        out += l;
+        out += '\n';
+    }
+    return out;
+}
+
+const Slurmon::LogPaths &
+Slurmon::log_paths_for(const std::string &job_id)
+{
+    auto it = m_log_paths_cache.find(job_id);
+    if (it != m_log_paths_cache.end())
+        return it->second;
+    auto [ins, _] = m_log_paths_cache.emplace(job_id, fetch_log_paths(job_id));
+    return ins->second;
 }
