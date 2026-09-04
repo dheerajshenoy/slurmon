@@ -60,14 +60,15 @@ Slurmon::init_ui() noexcept
             m_selected_row = 0;
         auto rows = build_rows(m_jobs);
 
-        auto left_pane = vbox({rows}) | border;
+        auto left_pane = window(text(" Jobs ") | bold, vbox(std::move(rows)))
+                         | flex;
 
         auto right_pane = vbox({window(text("Details") | bold,
                                        text("select a job to see details")),
                                 window(text("Logs") | bold,
                                        text("select a job to see logs"))
                                     | flex})
-                          | flex;
+                          | size(WIDTH, GREATER_THAN, 40) | flex;
 
         auto footer = m_show_footer
                           ? (text("j/k to navigate, q to quit") | dim | center)
@@ -134,11 +135,26 @@ ftxui::Element
 Slurmon::build_row(const Job &job, bool selected)
 {
     using namespace ftxui;
+
+    auto cell = [](const std::string &s, int w)
+    {
+        return text(" " + s) | size(WIDTH, EQUAL, w);
+    };
+
     auto row = hbox({
-        text(job.id()) | size(WIDTH, EQUAL, 5),
-        text(job.name()) | size(WIDTH, EQUAL, 20),
-        text(job.state()) | size(WIDTH, EQUAL, 10),
-        text(job.time()) | size(WIDTH, EQUAL, 10),
+        cell(job.id(), 8),
+        separator(),
+        cell(job.name(), 24),
+        separator(),
+        cell(job.state(), 12),
+        separator(),
+        cell(job.user(), 12),
+        separator(),
+        cell(job.time(), 12),
+        separator(),
+        cell(job.nodes(), 6),
+        separator(),
+        text(" " + job.nodelist_or_reason()) | flex,
     });
 
     if (selected)
@@ -150,12 +166,14 @@ Slurmon::build_row(const Job &job, bool selected)
 ftxui::Elements
 Slurmon::build_rows(const std::vector<Job> &jobs)
 {
-    ftxui::Elements rows;
+    using namespace ftxui;
+    Elements rows;
 
     rows.push_back(build_row(Job("ID", "NAME", "STATE", "USER", "TIME", "NODES",
                                  "NODELIST/REASON"),
                              false)
-                   | ftxui::bold | ftxui::underlined);
+                   | bold);
+    rows.push_back(separator());
 
     for (size_t i = 0; i < jobs.size(); ++i)
     {
