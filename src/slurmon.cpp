@@ -6,6 +6,28 @@
 #include <sstream>
 #include <thread>
 
+static ftxui::Decorator
+state_color(const std::string &state)
+{
+    using namespace ftxui;
+    if (state == "RUNNING")
+        return color(Color::Green);
+    if (state == "PENDING")
+        return color(Color::Yellow);
+    if (state == "COMPLETED")
+        return color(Color::Blue);
+    if (state == "COMPLETING")
+        return color(Color::Cyan);
+    if (state == "SUSPENDED")
+        return color(Color::Magenta);
+    if (state == "FAILED" || state == "NODE_FAIL" || state == "BOOT_FAIL"
+        || state == "OUT_OF_MEMORY" || state == "DEADLINE")
+        return color(Color::Red);
+    if (state == "CANCELLED" || state == "TIMEOUT" || state == "PREEMPTED")
+        return color(Color::RedLight);
+    return color(Color::Default);
+}
+
 Slurmon::Slurmon() : m_selected_row(-1) {}
 
 Slurmon::~Slurmon() {}
@@ -154,28 +176,6 @@ Slurmon::init_ui() noexcept
     m_running.store(false, std::memory_order_relaxed);
     if (ticker.joinable())
         ticker.join();
-}
-
-static ftxui::Decorator
-state_color(const std::string &state)
-{
-    using namespace ftxui;
-    if (state == "RUNNING")
-        return color(Color::Green);
-    if (state == "PENDING")
-        return color(Color::Yellow);
-    if (state == "COMPLETED")
-        return color(Color::Blue);
-    if (state == "COMPLETING")
-        return color(Color::Cyan);
-    if (state == "SUSPENDED")
-        return color(Color::Magenta);
-    if (state == "FAILED" || state == "NODE_FAIL" || state == "BOOT_FAIL"
-        || state == "OUT_OF_MEMORY" || state == "DEADLINE")
-        return color(Color::Red);
-    if (state == "CANCELLED" || state == "TIMEOUT" || state == "PREEMPTED")
-        return color(Color::RedLight);
-    return color(Color::Default);
 }
 
 ftxui::Element
