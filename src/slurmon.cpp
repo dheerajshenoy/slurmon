@@ -1,5 +1,7 @@
 #include "slurmon.hpp"
 
+#include <iostream>
+
 Slurmon::Slurmon() : m_selected_row(-1) {}
 
 Slurmon::~Slurmon()
@@ -124,13 +126,59 @@ Slurmon::build_rows(const std::vector<Job> &jobs)
 std::vector<Job>
 Slurmon::fetch_jobs()
 {
-    std::vector<Job> jobs = {
-        Job("1", "DD", "running", "user1", "00:10:00", "1", "node1"),
-        Job("2", "EE", "pending", "user2", "00:00:00", "1", "node2"),
-        Job("3", "FF", "completed", "user3", "00:20:00", "1", "node3"),
-    };
+    // std::vector<Job> jobs = {
+    //     Job("1", "DD", "running", "user1", "00:10:00", "1", "node1"),
+    //     Job("2", "EE", "pending", "user2", "00:00:00", "1", "node2"),
+    //     Job("3", "FF", "completed", "user3", "00:20:00", "1", "node3"),
+    // };
+    //
+    // m_jobs = jobs;
+    std::vector<Job> jobs;
 
-    m_jobs = jobs;
+    std::array<char, 128> buffer;
+    std::string output;
+
+    std::unique_ptr<FILE, decltype(&pclose)> pipe(
+        popen("squeue --noheader -o \"%i|%j|%T|%u|%M|%D|%R\"", "r"), pclose);
+    if (!pipe)
+    {
+        std::cerr << "Failed to run squeue command" << std::endl;
+        return jobs;
+    }
+
+    while (std::fgets(buffer.data(), buffer.size(), pipe.get()) != nullptr)
+    {
+        output += buffer.data();
+    }
+
+    int exit_code = pclose(pipe.release());
+    if (exit_code != 0)
+    {
+        std::cerr << "squeue command failed with exit code: " << exit_code
+                  << std::endl;
+        return jobs;
+    }
+
+    std::istringstream stream(output);
+    std::string line;
+
+    while (std::getline(stream, line))
+    {
+        std::istringstream line_stream(line);
+        std::string id, name, state, user, time, nodes, nodelist_or_reason;
+
+        if (std::getline(line_stream, id, '|')
+            && std::getline(line_stream, name, '|')
+            && std::getline(line_stream, state, '|')
+            && std::getline(line_stream, user, '|')
+            && std::getline(line_stream, time, '|')
+            && std::getline(line_stream, nodes, '|')
+            && std::getline(line_stream, nodelist_or_reason))
+        {
+            jobs.emplace_back(id, name, state, user, time, nodes,
+                              nodelist_or_reason);
+        }
+    }
 
     return jobs;
 }
