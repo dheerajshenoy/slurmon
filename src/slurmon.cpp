@@ -1,13 +1,14 @@
 #include "slurmon.hpp"
 
+#include <chrono>
 #include <iostream>
+#include <memory>
+#include <sstream>
+#include <thread>
 
 Slurmon::Slurmon() : m_selected_row(-1) {}
 
-Slurmon::~Slurmon()
-{
-    // Destructor implementation
-}
+Slurmon::~Slurmon() {}
 
 void
 Slurmon::run()
@@ -22,12 +23,42 @@ Slurmon::init_ui() noexcept
 
     auto screen = ScreenInteractive::Fullscreen();
 
+    {
+        auto initial = fetch_jobs();
+        std::lock_guard<std::mutex> lk(m_jobs_mutex);
+        m_jobs = std::move(initial);
+    }
+
+    std::thread ticker([&]
+    {
+        while (m_running.load(std::memory_order_relaxed))
+        {
+            for (int i = 0; i < 50 && m_running.load(std::memory_order_relaxed);
+                 ++i)
+                std::this_thread::sleep_for(std::chrono::milliseconds(100));
+
+            if (!m_running.load(std::memory_order_relaxed))
+                break;
+
+            auto fresh = fetch_jobs();
+            {
+                std::lock_guard<std::mutex> lk(m_jobs_mutex);
+                m_jobs = std::move(fresh);
+                if (m_selected_row >= static_cast<int>(m_jobs.size()))
+                    m_selected_row = static_cast<int>(m_jobs.size()) - 1;
+                if (m_selected_row < 0 && !m_jobs.empty())
+                    m_selected_row = 0;
+            }
+            screen.PostEvent(Event::Custom);
+        }
+    });
+
     auto renderer = Renderer([&]
     {
-        auto jobs = fetch_jobs();
-        if (m_selected_row == -1 && !jobs.empty())
+        std::lock_guard<std::mutex> lk(m_jobs_mutex);
+        if (m_selected_row == -1 && !m_jobs.empty())
             m_selected_row = 0;
-        auto rows = build_rows(jobs);
+        auto rows = build_rows(m_jobs);
 
         auto left_pane = vbox({rows}) | border;
 
@@ -51,22 +82,34 @@ Slurmon::init_ui() noexcept
 
     auto container = CatchEvent(renderer, [&](Event event)
     {
-        if (event == Event::Character('j')
-            && m_selected_row < static_cast<int>(m_jobs.size()) - 1)
-        {
-            m_selected_row++;
+        if (event == Event::Custom)
             return true;
+
+        if (event == Event::Character('j'))
+        {
+            std::lock_guard<std::mutex> lk(m_jobs_mutex);
+            if (m_selected_row < static_cast<int>(m_jobs.size()) - 1)
+            {
+                m_selected_row++;
+                return true;
+            }
+            return false;
         }
 
-        if (event == Event::Character('k') && m_selected_row > 0)
+        if (event == Event::Character('k'))
         {
-            m_selected_row--;
-            return true;
+            std::lock_guard<std::mutex> lk(m_jobs_mutex);
+            if (m_selected_row > 0)
+            {
+                m_selected_row--;
+                return true;
+            }
+            return false;
         }
 
         if (event == Event::Character('q'))
         {
-            m_running = false;
+            m_running.store(false, std::memory_order_relaxed);
             screen.Exit();
             return true;
         }
@@ -82,7 +125,9 @@ Slurmon::init_ui() noexcept
 
     screen.Loop(container);
 
-    // m_running = false;
+    m_running.store(false, std::memory_order_relaxed);
+    if (ticker.joinable())
+        ticker.join();
 }
 
 ftxui::Element
@@ -93,10 +138,7 @@ Slurmon::build_row(const Job &job, bool selected)
         text(job.id()) | size(WIDTH, EQUAL, 5),
         text(job.name()) | size(WIDTH, EQUAL, 20),
         text(job.state()) | size(WIDTH, EQUAL, 10),
-        // text(job.user()) | flex,
         text(job.time()) | size(WIDTH, EQUAL, 10),
-        // text(job.nodes()) | flex,
-        // text(job.nodelist_or_reason()()) | flex,
     });
 
     if (selected)
@@ -126,13 +168,6 @@ Slurmon::build_rows(const std::vector<Job> &jobs)
 std::vector<Job>
 Slurmon::fetch_jobs()
 {
-    // std::vector<Job> jobs = {
-    //     Job("1", "DD", "running", "user1", "00:10:00", "1", "node1"),
-    //     Job("2", "EE", "pending", "user2", "00:00:00", "1", "node2"),
-    //     Job("3", "FF", "completed", "user3", "00:20:00", "1", "node3"),
-    // };
-    //
-    // m_jobs = jobs;
     std::vector<Job> jobs;
 
     std::array<char, 128> buffer;
