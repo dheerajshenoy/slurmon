@@ -144,7 +144,12 @@ Slurmon::init_ui() noexcept
                     std::istringstream ss(tail);
                     std::string line;
                     while (std::getline(ss, line))
+                    {
+                        auto cr = line.rfind('\r');
+                        if (cr != std::string::npos)
+                            line.erase(0, cr + 1);
                         lines.push_back(text(line));
+                    }
                     log_content = vbox(std::move(lines))
                                   | focusPositionRelative(0, 1) | frame;
                 }
