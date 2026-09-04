@@ -60,8 +60,7 @@ Slurmon::init_ui() noexcept
             m_selected_row = 0;
         auto rows = build_rows(m_jobs);
 
-        auto left_pane = window(text(" Jobs ") | bold, vbox(std::move(rows)))
-                         | flex;
+        auto left_pane = window(text(" Jobs ") | bold, vbox(std::move(rows)));
 
         Element details;
         if (m_selected_row >= 0
@@ -90,8 +89,8 @@ Slurmon::init_ui() noexcept
             details = text("select a job to see details") | dim;
         }
 
-        auto right_pane = vbox({window(text("Details") | bold, details),
-                                window(text("Logs") | bold,
+        auto right_pane = vbox({window(text(" Details ") | bold, details),
+                                window(text(" Logs ") | bold,
                                        text("select a job to see logs"))
                                     | flex})
                           | size(WIDTH, GREATER_THAN, 40) | flex;
