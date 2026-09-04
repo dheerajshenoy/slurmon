@@ -67,21 +67,21 @@ Slurmon::init_ui() noexcept
             && m_selected_row < static_cast<int>(m_jobs.size()))
         {
             const auto &j = m_jobs[m_selected_row];
-            auto field    = [](const std::string &label, const std::string &val)
+            auto field    = [](const std::string &label, Element val)
             {
                 return hbox({
                     text(label) | bold | size(WIDTH, EQUAL, 10),
-                    text(val),
+                    std::move(val),
                 });
             };
             details = vbox({
-                field("ID:", j.id()),
-                field("Name:", j.name()),
-                field("State:", j.state()),
-                field("User:", j.user()),
-                field("Time:", j.time()),
-                field("Nodes:", j.nodes()),
-                field("Nodelist:", j.nodelist_or_reason()),
+                field("ID:", text(j.id())),
+                field("Name:", text(j.name())),
+                field("State:", text(j.state()) | state_color(j.state()) | bold),
+                field("User:", text(j.user())),
+                field("Time:", text(j.time())),
+                field("Nodes:", text(j.nodes())),
+                field("Nodelist:", text(j.nodelist_or_reason())),
             });
         }
         else
@@ -156,6 +156,28 @@ Slurmon::init_ui() noexcept
         ticker.join();
 }
 
+static ftxui::Decorator
+state_color(const std::string &state)
+{
+    using namespace ftxui;
+    if (state == "RUNNING")
+        return color(Color::Green);
+    if (state == "PENDING")
+        return color(Color::Yellow);
+    if (state == "COMPLETED")
+        return color(Color::Blue);
+    if (state == "COMPLETING")
+        return color(Color::Cyan);
+    if (state == "SUSPENDED")
+        return color(Color::Magenta);
+    if (state == "FAILED" || state == "NODE_FAIL" || state == "BOOT_FAIL"
+        || state == "OUT_OF_MEMORY" || state == "DEADLINE")
+        return color(Color::Red);
+    if (state == "CANCELLED" || state == "TIMEOUT" || state == "PREEMPTED")
+        return color(Color::RedLight);
+    return color(Color::Default);
+}
+
 ftxui::Element
 Slurmon::build_row(const Job &job, bool selected)
 {
@@ -171,7 +193,7 @@ Slurmon::build_row(const Job &job, bool selected)
         separator(),
         cell(job.name(), 24) | flex,
         separator(),
-        cell(job.state(), 12),
+        cell(job.state(), 12) | state_color(job.state()) | bold,
         separator(),
         cell(job.time(), 12),
     });
