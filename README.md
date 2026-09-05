@@ -12,7 +12,7 @@ SLURM monitoring utility
 # TODO
 
 - [ ] Configuration
-- [ ] Search jobs
+- [x] Search jobs
 - [x] Cancel job with confirmation
 - [ ] Historical job info using `sacct`
 - [ ] Quick resubmit / clone job
