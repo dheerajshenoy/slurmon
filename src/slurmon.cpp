@@ -300,7 +300,7 @@ Slurmon::init_ui() noexcept
         Elements panes;
         if (m_config.details_view.show)
             panes.push_back(window(text(" Details ") | bold, details));
-        if (m_config.log_viewer.show)
+        if (m_config.log_view.show)
             panes.push_back(window(text(log_title) | bold, log_content) | flex);
         if (panes.empty())
             panes.push_back(filler());
@@ -668,11 +668,11 @@ Slurmon::init_config() noexcept
             m_config.job_list.refresh_interval = static_cast<int>(tmp);
     }
 
-    // [log_viewer]
-    load_config_field(toml, "log_viewer", "show", m_config.log_viewer.show);
-    load_config_field(toml, "log_viewer", "error_first",
-                      m_config.log_viewer.error_first);
-    m_show_stderr = m_config.log_viewer.error_first;
+    // [log_view]
+    load_config_field(toml, "log_view", "show", m_config.log_view.show);
+    load_config_field(toml, "log_view", "error_first",
+                      m_config.log_view.error_first);
+    m_show_stderr = m_config.log_view.error_first;
 
     // [details_view]
     load_config_field(toml, "detail_view", "show",

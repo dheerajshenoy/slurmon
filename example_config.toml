@@ -8,7 +8,7 @@ show = true
 loop_after_end = false
 refresh_interval = 5   # seconds between squeue refreshes
 
-[log_viewer]
+[log_view]
 show = true
 error_first = false    # show stderr first instead of stdout
 

@@ -15,12 +15,12 @@ struct Config
         bool show = true;
     } footer;
 
-    struct LogViewer
+    struct LogView
     {
         bool show        = true;
         bool error_first = false; // Whether to show the error log first when
                                   // opening the log viewer
-    } log_viewer;
+    } log_view;
 
     struct DetailsView
     {
