@@ -11,7 +11,7 @@ SLURM monitoring utility
 
 # TODO
 
-- [ ] Configuration
+- [x] Configuration
 - [x] Search jobs
 - [x] Cancel job with confirmation
 - [ ] Historical job info using `sacct`

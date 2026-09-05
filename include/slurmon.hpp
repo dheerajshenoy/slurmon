@@ -25,7 +25,7 @@ private:
     void init_args() noexcept;
     void parse_args() noexcept;
     void init_ui() noexcept;
-    ftxui::Element build_row(const Job &job, bool selected);
+    ftxui::Element build_row(const Job &job, bool selected, int id_width);
     ftxui::Elements build_rows(const std::vector<Job> &jobs);
     static std::vector<Job> fetch_jobs();
     static LogPaths fetch_log_paths(const std::string &job_id);

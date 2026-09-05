@@ -1,5 +1,6 @@
 #include "slurmon.hpp"
 
+#include <algorithm>
 #include <cctype>
 #include <chrono>
 #include <cstdlib>
@@ -548,7 +549,7 @@ Slurmon::init_ui() noexcept
 
 // Build a single row for the job table
 ftxui::Element
-Slurmon::build_row(const Job &job, bool selected)
+Slurmon::build_row(const Job &job, bool selected, int id_width)
 {
     using namespace ftxui;
 
@@ -558,7 +559,7 @@ Slurmon::build_row(const Job &job, bool selected)
     };
 
     auto row = hbox({
-        cell(job.id(), 8),
+        cell(job.id(), id_width),
         separator(),
         cell(job.name(), 24) | flex,
         separator(),
@@ -580,15 +581,22 @@ Slurmon::build_rows(const std::vector<Job> &jobs)
     using namespace ftxui;
     Elements rows;
 
+    constexpr int kIdPadding = 2;
+    int id_width             = static_cast<int>(std::string("ID").size());
+    for (const auto &j : jobs)
+        id_width = std::max(id_width, static_cast<int>(j.id().size()));
+    id_width += kIdPadding;
+
     rows.push_back(build_row(Job("ID", "NAME", "STATE", "USER", "TIME", "NODES",
                                  "NODELIST/REASON"),
-                             false)
+                             false, id_width)
                    | bold);
     rows.push_back(separator());
 
     for (size_t i = 0; i < jobs.size(); ++i)
     {
-        rows.push_back(build_row(jobs.at(i), (int)i == m_selected_row));
+        rows.push_back(
+            build_row(jobs.at(i), (int)i == m_selected_row, id_width));
     }
 
     return rows;
