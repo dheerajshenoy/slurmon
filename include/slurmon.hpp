@@ -40,6 +40,9 @@ private:
     int m_split_size   = 60;
     std::chrono::steady_clock::time_point m_pending_g_time{};
     bool m_show_help_dialog   = false;
+    bool m_search_mode        = false;
+    std::string m_search_buffer;
+    std::string m_search_query;
     bool m_show_cancel_dialog = false;
     std::string m_cancel_target_id;
     std::string m_cancel_target_name;

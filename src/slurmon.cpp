@@ -10,6 +10,43 @@
 #include <sstream>
 #include <thread>
 
+static bool
+matches_query(const Job &j, const std::string &q_lower)
+{
+    if (q_lower.empty())
+        return true;
+    auto lower = [](std::string s)
+    {
+        for (auto &c : s)
+            c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+        return s;
+    };
+    auto contains = [&](const std::string &s)
+    {
+        return lower(s).find(q_lower) != std::string::npos;
+    };
+    return contains(j.id()) || contains(j.name()) || contains(j.state())
+           || contains(j.time());
+}
+
+static std::vector<Job>
+filter_jobs(const std::vector<Job> &jobs, const std::string &query)
+{
+    if (query.empty())
+        return jobs;
+    std::string q;
+    q.reserve(query.size());
+    for (char c : query)
+        q.push_back(
+            static_cast<char>(std::tolower(static_cast<unsigned char>(c))));
+    std::vector<Job> out;
+    out.reserve(jobs.size());
+    for (const auto &j : jobs)
+        if (matches_query(j, q))
+            out.push_back(j);
+    return out;
+}
+
 static ftxui::Decorator
 state_color(const std::string &state)
 {
@@ -69,10 +106,12 @@ Slurmon::init_ui() noexcept
             auto fresh = fetch_jobs();
             {
                 std::lock_guard<std::mutex> lk(m_jobs_mutex);
-                m_jobs = std::move(fresh);
-                if (m_selected_row >= static_cast<int>(m_jobs.size()))
-                    m_selected_row = static_cast<int>(m_jobs.size()) - 1;
-                if (m_selected_row < 0 && !m_jobs.empty())
+                m_jobs   = std::move(fresh);
+                auto vsz = static_cast<int>(
+                    filter_jobs(m_jobs, m_search_query).size());
+                if (m_selected_row >= vsz)
+                    m_selected_row = vsz - 1;
+                if (m_selected_row < 0 && vsz > 0)
                     m_selected_row = 0;
             }
             screen.PostEvent(Event::Custom);
@@ -82,21 +121,26 @@ Slurmon::init_ui() noexcept
     auto left_renderer = Renderer([&]
     {
         std::lock_guard<std::mutex> lk(m_jobs_mutex);
-        if (m_selected_row == -1 && !m_jobs.empty())
+        auto view = filter_jobs(m_jobs, m_search_query);
+        if (m_selected_row == -1 && !view.empty())
             m_selected_row = 0;
-        auto rows = build_rows(m_jobs);
-        return window(text(" Jobs ") | bold, vbox(std::move(rows)));
+        if (m_selected_row >= static_cast<int>(view.size()))
+            m_selected_row = view.empty() ? -1
+                                          : static_cast<int>(view.size()) - 1;
+
+        return window(text(" Jobs ") | bold, vbox(build_rows(view)));
     });
 
     auto right_renderer = Renderer([&]
     {
         std::lock_guard<std::mutex> lk(m_jobs_mutex);
+        auto view = filter_jobs(m_jobs, m_search_query);
 
         Element details;
         if (m_selected_row >= 0
-            && m_selected_row < static_cast<int>(m_jobs.size()))
+            && m_selected_row < static_cast<int>(view.size()))
         {
-            const auto &j = m_jobs[m_selected_row];
+            const auto &j = view[m_selected_row];
             auto field    = [](const std::string &label, Element val)
             {
                 return hbox({
@@ -124,9 +168,9 @@ Slurmon::init_ui() noexcept
         std::string log_title
             = m_show_stderr ? " Logs (stderr) " : " Logs (stdout) ";
         if (m_selected_row >= 0
-            && m_selected_row < static_cast<int>(m_jobs.size()))
+            && m_selected_row < static_cast<int>(view.size()))
         {
-            const auto &j     = m_jobs[m_selected_row];
+            const auto &j     = view[m_selected_row];
             const auto &paths = log_paths_for(j.id());
             const std::string &path
                 = m_show_stderr ? paths.stderr_path : paths.stdout_path;
@@ -177,9 +221,22 @@ Slurmon::init_ui() noexcept
     auto renderer = Renderer(split, [&]
     {
         Elements root = {split->Render() | flex};
+        if (m_search_mode || !m_search_query.empty())
+        {
+            std::string prefix = m_search_mode ? "/" : "filter: ";
+            std::string q      = m_search_mode ? m_search_buffer
+                                               : m_search_query;
+            auto bar = hbox({text(prefix) | bold,
+                             text(q),
+                             text(m_search_mode ? "_" : "") | blink})
+                       | (m_search_mode ? color(Color::Yellow)
+                                        : color(Color::Default));
+            root.push_back(bar);
+        }
         if (m_show_footer)
         {
-            root.push_back(text("? help, F1 footer, q quit") | dim | center);
+            root.push_back(text("/ search, ? help, F1 footer, q quit") | dim
+                           | center);
         }
         Element page = vbox(std::move(root));
 
@@ -199,6 +256,8 @@ Slurmon::init_ui() noexcept
                                    binding("G", "jump to last job"),
                                    binding("e", "toggle stdout / stderr log"),
                                    binding("c", "cancel selected job"),
+                                   binding("/", "search (id/name/state/time)"),
+                                   binding("Esc", "clear active filter"),
                                    binding("?", "toggle this help"),
                                    binding("F1", "toggle footer"),
                                    binding("q", "quit"),
@@ -243,6 +302,53 @@ Slurmon::init_ui() noexcept
         if (event == Event::Custom)
             return true;
 
+        if (m_search_mode)
+        {
+            if (event == Event::Return)
+            {
+                m_search_query = m_search_buffer;
+                m_search_mode  = false;
+                std::lock_guard<std::mutex> lk(m_jobs_mutex);
+                auto vsz = static_cast<int>(
+                    filter_jobs(m_jobs, m_search_query).size());
+                m_selected_row = vsz > 0 ? 0 : -1;
+                return true;
+            }
+            if (event == Event::Escape)
+            {
+                m_search_mode = false;
+                m_search_buffer.clear();
+                return true;
+            }
+            if (event == Event::Backspace)
+            {
+                if (!m_search_buffer.empty())
+                    m_search_buffer.pop_back();
+                return true;
+            }
+            if (event.is_character())
+            {
+                m_search_buffer += event.character();
+                return true;
+            }
+            return true;
+        }
+
+        if (event == Event::Character('/'))
+        {
+            m_search_mode = true;
+            m_search_buffer.clear();
+            return true;
+        }
+
+        if (event == Event::Escape && !m_search_query.empty())
+        {
+            m_search_query.clear();
+            std::lock_guard<std::mutex> lk(m_jobs_mutex);
+            m_selected_row = m_jobs.empty() ? -1 : 0;
+            return true;
+        }
+
         if (m_show_help_dialog)
         {
             m_show_help_dialog = false;
@@ -266,9 +372,11 @@ Slurmon::init_ui() noexcept
                 {
                     auto fresh = fetch_jobs();
                     std::lock_guard<std::mutex> lk(m_jobs_mutex);
-                    m_jobs = std::move(fresh);
-                    if (m_selected_row >= static_cast<int>(m_jobs.size()))
-                        m_selected_row = static_cast<int>(m_jobs.size()) - 1;
+                    m_jobs   = std::move(fresh);
+                    auto vsz = static_cast<int>(
+                        filter_jobs(m_jobs, m_search_query).size());
+                    if (m_selected_row >= vsz)
+                        m_selected_row = vsz - 1;
                 }
                 m_show_cancel_dialog = false;
                 m_cancel_status.clear();
@@ -286,10 +394,11 @@ Slurmon::init_ui() noexcept
         if (event == Event::Character('c'))
         {
             std::lock_guard<std::mutex> lk(m_jobs_mutex);
+            auto view = filter_jobs(m_jobs, m_search_query);
             if (m_selected_row >= 0
-                && m_selected_row < static_cast<int>(m_jobs.size()))
+                && m_selected_row < static_cast<int>(view.size()))
             {
-                const auto &j        = m_jobs[m_selected_row];
+                const auto &j        = view[m_selected_row];
                 m_cancel_target_id   = j.id();
                 m_cancel_target_name = j.name();
                 m_show_cancel_dialog = true;
@@ -301,7 +410,9 @@ Slurmon::init_ui() noexcept
         if (event == Event::Character('j'))
         {
             std::lock_guard<std::mutex> lk(m_jobs_mutex);
-            if (m_selected_row < static_cast<int>(m_jobs.size()) - 1)
+            auto vsz = static_cast<int>(
+                filter_jobs(m_jobs, m_search_query).size());
+            if (m_selected_row < vsz - 1)
             {
                 m_selected_row++;
                 return true;
@@ -330,7 +441,9 @@ Slurmon::init_ui() noexcept
             {
                 m_pending_g_time = {};
                 std::lock_guard<std::mutex> lk(m_jobs_mutex);
-                if (!m_jobs.empty())
+                auto vsz = static_cast<int>(
+                    filter_jobs(m_jobs, m_search_query).size());
+                if (vsz > 0)
                 {
                     m_selected_row = 0;
                     return true;
@@ -345,9 +458,11 @@ Slurmon::init_ui() noexcept
         {
             m_pending_g_time = {};
             std::lock_guard<std::mutex> lk(m_jobs_mutex);
-            if (!m_jobs.empty())
+            auto vsz = static_cast<int>(
+                filter_jobs(m_jobs, m_search_query).size());
+            if (vsz > 0)
             {
-                m_selected_row = static_cast<int>(m_jobs.size()) - 1;
+                m_selected_row = vsz - 1;
                 return true;
             }
             return false;
