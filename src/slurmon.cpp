@@ -77,14 +77,18 @@ Slurmon::init_ui() noexcept
         }
     });
 
-    auto renderer = Renderer([&]
+    auto left_renderer = Renderer([&]
     {
         std::lock_guard<std::mutex> lk(m_jobs_mutex);
         if (m_selected_row == -1 && !m_jobs.empty())
             m_selected_row = 0;
         auto rows = build_rows(m_jobs);
+        return window(text(" Jobs ") | bold, vbox(std::move(rows)));
+    });
 
-        auto left_pane = window(text(" Jobs ") | bold, vbox(std::move(rows)));
+    auto right_renderer = Renderer([&]
+    {
+        std::lock_guard<std::mutex> lk(m_jobs_mutex);
 
         Element details;
         if (m_selected_row >= 0
@@ -161,12 +165,16 @@ Slurmon::init_ui() noexcept
             log_content = text("select a job to see logs") | dim;
         }
 
-        auto right_pane
-            = vbox({window(text(" Details ") | bold, details),
-                    window(text(log_title) | bold, log_content) | flex})
-              | size(WIDTH, GREATER_THAN, 40) | flex;
+        return vbox({window(text(" Details ") | bold, details),
+                     window(text(log_title) | bold, log_content) | flex});
+    });
 
-        Elements root = {hbox({left_pane, right_pane}) | flex};
+    auto split
+        = ResizableSplitLeft(left_renderer, right_renderer, &m_split_size);
+
+    auto renderer = Renderer(split, [&]
+    {
+        Elements root = {split->Render() | flex};
         if (m_show_footer)
         {
             root.push_back(

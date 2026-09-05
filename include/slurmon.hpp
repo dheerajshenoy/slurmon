@@ -35,5 +35,6 @@ private:
     std::atomic<bool> m_running{true};
     bool m_show_footer = true;
     bool m_show_stderr = false;
+    int m_split_size   = 60;
     std::unordered_map<std::string, LogPaths> m_log_paths_cache;
 };
