@@ -11,6 +11,18 @@
 #include <sstream>
 #include <thread>
 
+template <typename T>
+void
+load_config_field(const toml::table &parent, std::string_view section,
+                  std::string_view key, T &out)
+{
+    if (auto table = parent[section].as_table())
+    {
+        if (auto value = table->get_as<T>(key))
+            out = value->get();
+    }
+}
+
 // Check if a job matches the search query (case-insensitive)
 static bool
 matches_query(const Job &j, const std::string &q_lower)
@@ -51,7 +63,8 @@ filter_jobs(const std::vector<Job> &jobs, const std::string &query)
 }
 
 // Forward-declared here; defined near cancel_job.
-static std::vector<std::string> expand_array_ids(const std::string &id);
+static std::vector<std::string>
+expand_array_ids(const std::string &id);
 
 // Return a color decorator based on the job state
 static ftxui::Decorator
@@ -90,6 +103,7 @@ Slurmon::Slurmon(int argc, char **argv) : m_selected_row(-1)
         std::exit(1);
     }
     parse_args();
+    init_config();
 }
 
 // Destructor for the Slurmon class
@@ -144,8 +158,8 @@ Slurmon::init_ui() noexcept
 
     if (m_split_size < 0)
     {
-        auto dim       = Terminal::Size();
-        m_split_size   = std::max(20, dim.dimx / 2);
+        auto dim     = Terminal::Size();
+        m_split_size = std::max(20, dim.dimx / 2);
     }
 
     {
@@ -273,16 +287,21 @@ Slurmon::init_ui() noexcept
             log_content = text("select a job to see logs") | dim;
         }
 
-        return vbox({window(text(" Details ") | bold, details),
-                     window(text(log_title) | bold, log_content) | flex});
+        Elements panes = {window(text(" Details ") | bold, details)};
+        if (m_config.log_viewer.show)
+            panes.push_back(window(text(log_title) | bold, log_content) | flex);
+        return vbox(std::move(panes));
     });
 
     auto split
         = ResizableSplitLeft(left_renderer, right_renderer, &m_split_size);
 
-    auto renderer = Renderer(split, [&]
+    auto content_component
+        = m_config.job_list.show ? split : Container::Vertical({right_renderer});
+
+    auto renderer = Renderer(content_component, [&]
     {
-        Elements root = {split->Render() | flex};
+        Elements root = {content_component->Render() | flex};
         if (m_search_mode || !m_search_query.empty())
         {
             std::string prefix = m_search_mode ? "/" : "filter: ";
@@ -478,10 +497,10 @@ Slurmon::init_ui() noexcept
                 const auto &j = view[m_selected_row];
                 if (event == Event::Character('C'))
                 {
-                    auto us = j.id().find('_');
-                    m_cancel_target_id
-                        = (us == std::string::npos) ? j.id()
-                                                    : j.id().substr(0, us);
+                    auto us            = j.id().find('_');
+                    m_cancel_target_id = (us == std::string::npos)
+                                             ? j.id()
+                                             : j.id().substr(0, us);
                 }
                 else
                 {
@@ -504,6 +523,11 @@ Slurmon::init_ui() noexcept
                 m_selected_row++;
                 return true;
             }
+            if (m_loop_after_end && vsz > 0)
+            {
+                m_selected_row = 0;
+                return true;
+            }
             return false;
         }
 
@@ -514,6 +538,16 @@ Slurmon::init_ui() noexcept
             {
                 m_selected_row--;
                 return true;
+            }
+            if (m_loop_after_end)
+            {
+                auto vsz = static_cast<int>(
+                    filter_jobs(m_jobs, m_search_query).size());
+                if (vsz > 0)
+                {
+                    m_selected_row = vsz - 1;
+                    return true;
+                }
             }
             return false;
         }
@@ -582,6 +616,43 @@ Slurmon::init_ui() noexcept
     m_running.store(false, std::memory_order_relaxed);
     if (ticker.joinable())
         ticker.join();
+}
+
+void
+Slurmon::init_config() noexcept
+{
+    if (m_config_path.empty())
+        return;
+
+    m_config = Config();
+    // Parse the TOML configuration file
+    toml::table toml;
+    try
+    {
+        toml = toml::parse_file(m_config_path);
+    }
+    catch (const toml::parse_error &e)
+    {
+        std::cerr << "Failed to parse config file: " << m_config_path << "\n"
+                  << e.description() << std::endl;
+        return;
+    }
+
+    // [footer]
+    load_config_field(toml, "footer", "show", m_config.footer.show);
+    m_show_footer = m_config.footer.show;
+
+    // [job_list]
+    load_config_field(toml, "job_list", "show", m_config.job_list.show);
+    load_config_field(toml, "job_list", "loop_after_end",
+                      m_config.job_list.loop_after_end);
+    m_loop_after_end = m_config.job_list.loop_after_end;
+
+    // [log_viewer]
+    load_config_field(toml, "log_viewer", "show", m_config.log_viewer.show);
+    load_config_field(toml, "log_viewer", "error_first",
+                      m_config.log_viewer.error_first);
+    m_show_stderr = m_config.log_viewer.error_first;
 }
 
 // Build a single row for the job table
@@ -803,17 +874,16 @@ expand_array_ids(const std::string &id)
     }
 
     std::string inner = tail.substr(1, tail.size() - 2);
-    size_t pos = 0;
+    size_t pos        = 0;
     while (pos <= inner.size())
     {
-        auto comma = inner.find(',', pos);
-        std::string tok
-            = inner.substr(pos, comma == std::string::npos ? std::string::npos
-                                                           : comma - pos);
-        auto colon        = tok.find(':');
-        std::string range = colon == std::string::npos ? tok
-                                                       : tok.substr(0, colon);
-        int step          = 1;
+        auto comma      = inner.find(',', pos);
+        std::string tok = inner.substr(
+            pos, comma == std::string::npos ? std::string::npos : comma - pos);
+        auto colon = tok.find(':');
+        std::string range
+            = colon == std::string::npos ? tok : tok.substr(0, colon);
+        int step = 1;
         if (colon != std::string::npos)
         {
             std::string s = tok.substr(colon + 1);

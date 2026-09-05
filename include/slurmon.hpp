@@ -1,7 +1,9 @@
 #pragma once
 
 #include "argparse.hpp"
+#include "config.hpp"
 #include "job.hpp"
+#include "toml.hpp"
 
 #include <atomic>
 #include <chrono>
@@ -23,8 +25,9 @@ private:
     };
 
     void init_args() noexcept;
-    void parse_args() noexcept;
     void init_ui() noexcept;
+    void init_config() noexcept;
+    void parse_args() noexcept;
     ftxui::Element build_row(const Job &job, bool selected, int id_width);
     ftxui::Elements build_rows(const std::vector<Job> &jobs);
     static std::vector<Job> fetch_jobs();
@@ -42,6 +45,7 @@ private:
     std::mutex m_jobs_mutex;
     std::atomic<bool> m_running = true;
 
+    bool m_loop_after_end     = false;
     bool m_show_footer        = true;
     bool m_show_stderr        = false;
     bool m_show_help_dialog   = false;
@@ -57,4 +61,6 @@ private:
     std::string m_cancel_status;
     std::unordered_map<std::string, LogPaths> m_log_paths_cache;
     std::string m_config_path;
+
+    Config m_config;
 };

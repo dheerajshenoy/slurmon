@@ -1,0 +1,12 @@
+# This is the default configuration for `slurmon`
+
+[footer]
+show = true
+
+[job_list]
+show = true
+loop_after_end = false
+
+[log_viewer]
+show = true
+error_first = false
