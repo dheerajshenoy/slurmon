@@ -307,11 +307,18 @@ Slurmon::init_ui() noexcept
         return vbox(std::move(panes));
     });
 
-    auto split
-        = ResizableSplitLeft(left_renderer, right_renderer, &m_split_size);
+    bool right_visible
+        = m_config.detail_view.show || m_config.log_view.show;
+    bool left_visible = m_config.job_list.show;
 
-    auto content_component
-        = m_config.job_list.show ? split : Container::Vertical({right_renderer});
+    Component content_component;
+    if (left_visible && right_visible)
+        content_component
+            = ResizableSplitLeft(left_renderer, right_renderer, &m_split_size);
+    else if (right_visible)
+        content_component = Container::Vertical({right_renderer});
+    else
+        content_component = Container::Vertical({left_renderer});
 
     auto renderer = Renderer(content_component, [&]
     {
