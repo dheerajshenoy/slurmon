@@ -2,13 +2,13 @@
 
 struct Config
 {
-    struct JobList
+    struct JobView
     {
         bool show = true;
         bool loop_after_end
             = false; // Whether to loop the job list after reaching the end
         int refresh_interval = 5; // Seconds between squeue refreshes
-    } job_list;
+    } job_view;
 
     struct Footer
     {

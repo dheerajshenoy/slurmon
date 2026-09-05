@@ -3,7 +3,7 @@
 [footer]
 show = true
 
-[job_list]
+[job_view]
 show = true
 loop_after_end = false
 refresh_interval = 5   # seconds between squeue refreshes

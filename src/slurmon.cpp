@@ -172,7 +172,7 @@ Slurmon::init_ui() noexcept
     {
         while (m_running.load(std::memory_order_relaxed))
         {
-            int slices = std::max(1, m_config.job_list.refresh_interval) * 10;
+            int slices = std::max(1, m_config.job_view.refresh_interval) * 10;
             for (int i = 0;
                  i < slices && m_running.load(std::memory_order_relaxed); ++i)
                 std::this_thread::sleep_for(std::chrono::milliseconds(100));
@@ -309,7 +309,7 @@ Slurmon::init_ui() noexcept
 
     bool right_visible
         = m_config.detail_view.show || m_config.log_view.show;
-    bool left_visible = m_config.job_list.show;
+    bool left_visible = m_config.job_view.show;
 
     Component content_component;
     if (left_visible && right_visible)
@@ -663,16 +663,16 @@ Slurmon::init_config() noexcept
     load_config_field(toml, "footer", "show", m_config.footer.show);
     m_show_footer = m_config.footer.show;
 
-    // [job_list]
-    load_config_field(toml, "job_list", "show", m_config.job_list.show);
-    load_config_field(toml, "job_list", "loop_after_end",
-                      m_config.job_list.loop_after_end);
-    m_loop_after_end = m_config.job_list.loop_after_end;
+    // [job_view]
+    load_config_field(toml, "job_view", "show", m_config.job_view.show);
+    load_config_field(toml, "job_view", "loop_after_end",
+                      m_config.job_view.loop_after_end);
+    m_loop_after_end = m_config.job_view.loop_after_end;
     {
-        int64_t tmp = m_config.job_list.refresh_interval;
-        load_config_field(toml, "job_list", "refresh_interval", tmp);
+        int64_t tmp = m_config.job_view.refresh_interval;
+        load_config_field(toml, "job_view", "refresh_interval", tmp);
         if (tmp >= 1)
-            m_config.job_list.refresh_interval = static_cast<int>(tmp);
+            m_config.job_view.refresh_interval = static_cast<int>(tmp);
     }
 
     // [log_view]
