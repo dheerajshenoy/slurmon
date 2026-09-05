@@ -1,6 +1,8 @@
 #include "slurmon.hpp"
 
+#include <cctype>
 #include <chrono>
+#include <cstdlib>
 #include <deque>
 #include <fstream>
 #include <iostream>
@@ -177,19 +179,124 @@ Slurmon::init_ui() noexcept
         Elements root = {split->Render() | flex};
         if (m_show_footer)
         {
-            root.push_back(
-                text(std::string(
-                         "j/k navigate, e toggle, F1 to toggle footer, ")
-                     + (m_show_stderr ? "stdout" : "stderr") + ", q quit")
-                | dim | center);
+            root.push_back(text("? help, F1 footer, q quit") | dim | center);
         }
-        return vbox(std::move(root));
+        Element page = vbox(std::move(root));
+
+        if (m_show_help_dialog)
+        {
+            auto binding = [](const std::string &keys, const std::string &desc)
+            {
+                return hbox({
+                    text(keys) | bold | size(WIDTH, EQUAL, 14),
+                    text(desc),
+                });
+            };
+            auto help = window(text(" Help ") | bold,
+                               vbox({
+                                   binding("j / k", "move selection down / up"),
+                                   binding("gg", "jump to first job"),
+                                   binding("G", "jump to last job"),
+                                   binding("e", "toggle stdout / stderr log"),
+                                   binding("c", "cancel selected job"),
+                                   binding("?", "toggle this help"),
+                                   binding("F1", "toggle footer"),
+                                   binding("q", "quit"),
+                                   text(""),
+                                   text("mouse: drag the vertical split")
+                                       | dim,
+                                   text("press any key to close") | dim
+                                       | center,
+                               }))
+                        | size(WIDTH, GREATER_THAN, 44) | clear_under | center;
+            page = dbox({page, help});
+        }
+
+        if (m_show_cancel_dialog)
+        {
+            Elements dialog_children = {
+                text("Cancel Job") | bold | center,
+                separator(),
+                text("ID:   " + m_cancel_target_id),
+                text("Name: " + m_cancel_target_name),
+                text(""),
+                text("Really cancel this job?") | center,
+                text(""),
+                text("[y] confirm    [n/Esc] cancel") | dim | center,
+            };
+            if (!m_cancel_status.empty())
+            {
+                dialog_children.push_back(separator());
+                dialog_children.push_back(text(m_cancel_status) | center);
+            }
+            auto dialog = window(text(" Confirm ") | bold,
+                                 vbox(std::move(dialog_children)))
+                          | size(WIDTH, GREATER_THAN, 40) | clear_under
+                          | center;
+            page = dbox({page, dialog});
+        }
+        return page;
     });
 
     auto container = CatchEvent(renderer, [&](Event event)
     {
         if (event == Event::Custom)
             return true;
+
+        if (m_show_help_dialog)
+        {
+            m_show_help_dialog = false;
+            return true;
+        }
+
+        if (event == Event::Character('?'))
+        {
+            m_show_help_dialog = true;
+            return true;
+        }
+
+        if (m_show_cancel_dialog)
+        {
+            if (event == Event::Character('y') || event == Event::Return)
+            {
+                bool ok = cancel_job(m_cancel_target_id);
+                m_cancel_status = ok ? "cancelled — refreshing…"
+                                     : "scancel failed";
+                if (ok)
+                {
+                    auto fresh = fetch_jobs();
+                    std::lock_guard<std::mutex> lk(m_jobs_mutex);
+                    m_jobs = std::move(fresh);
+                    if (m_selected_row >= static_cast<int>(m_jobs.size()))
+                        m_selected_row = static_cast<int>(m_jobs.size()) - 1;
+                }
+                m_show_cancel_dialog = false;
+                m_cancel_status.clear();
+                return true;
+            }
+            if (event == Event::Character('n') || event == Event::Escape)
+            {
+                m_show_cancel_dialog = false;
+                m_cancel_status.clear();
+                return true;
+            }
+            return true;
+        }
+
+        if (event == Event::Character('c'))
+        {
+            std::lock_guard<std::mutex> lk(m_jobs_mutex);
+            if (m_selected_row >= 0
+                && m_selected_row < static_cast<int>(m_jobs.size()))
+            {
+                const auto &j        = m_jobs[m_selected_row];
+                m_cancel_target_id   = j.id();
+                m_cancel_target_name = j.name();
+                m_show_cancel_dialog = true;
+                return true;
+            }
+            return false;
+        }
 
         if (event == Event::Character('j'))
         {
@@ -439,4 +546,19 @@ Slurmon::log_paths_for(const std::string &job_id)
         return it->second;
     auto [ins, _] = m_log_paths_cache.emplace(job_id, fetch_log_paths(job_id));
     return ins->second;
+}
+
+bool
+Slurmon::cancel_job(const std::string &job_id)
+{
+    if (job_id.empty())
+        return false;
+    for (char c : job_id)
+    {
+        if (!std::isdigit(static_cast<unsigned char>(c)) && c != '_'
+            && c != '.')
+            return false;
+    }
+    std::string cmd = "scancel " + job_id + " >/dev/null 2>&1";
+    return std::system(cmd.c_str()) == 0;
 }
