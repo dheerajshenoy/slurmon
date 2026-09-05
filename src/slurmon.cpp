@@ -50,6 +50,9 @@ filter_jobs(const std::vector<Job> &jobs, const std::string &query)
     return out;
 }
 
+// Forward-declared here; defined near cancel_job.
+static std::vector<std::string> expand_array_ids(const std::string &id);
+
 // Return a color decorator based on the job state
 static ftxui::Decorator
 state_color(const std::string &state)
@@ -313,7 +316,8 @@ Slurmon::init_ui() noexcept
                              binding("gg", "jump to first job"),
                              binding("G", "jump to last job"),
                              binding("e", "toggle stdout / stderr log"),
-                             binding("c", "cancel selected job"),
+                             binding("c", "cancel selected job / array range"),
+                             binding("C", "cancel parent job (array root)"),
                              binding("/", "search (id/name/state/time)"),
                              binding("Esc", "clear active filter"),
                              binding("?", "toggle this help"),
@@ -329,13 +333,30 @@ Slurmon::init_ui() noexcept
 
         if (m_show_cancel_dialog)
         {
+            auto expanded = expand_array_ids(m_cancel_target_id);
+            std::string will;
+            if (expanded.empty())
+            {
+                will = "(invalid id — nothing will be cancelled)";
+            }
+            else if (expanded.size() == 1)
+            {
+                will = expanded.front();
+            }
+            else
+            {
+                will = std::to_string(expanded.size()) + " tasks: "
+                       + expanded.front() + " … " + expanded.back();
+            }
+
             Elements dialog_children = {
                 text("Cancel Job") | bold | center,
                 separator(),
-                text("ID:   " + m_cancel_target_id),
-                text("Name: " + m_cancel_target_name),
+                text("ID:      " + m_cancel_target_id),
+                text("Name:    " + m_cancel_target_name),
+                text("Cancels: " + will) | dim,
                 text(""),
-                text("Really cancel this job?") | center,
+                text("Really cancel?") | center,
                 text(""),
                 text("[y] confirm    [n/Esc] cancel") | dim | center,
             };
@@ -447,15 +468,25 @@ Slurmon::init_ui() noexcept
             return true;
         }
 
-        if (event == Event::Character('c'))
+        if (event == Event::Character('c') || event == Event::Character('C'))
         {
             std::lock_guard<std::mutex> lk(m_jobs_mutex);
             auto view = filter_jobs(m_jobs, m_search_query);
             if (m_selected_row >= 0
                 && m_selected_row < static_cast<int>(view.size()))
             {
-                const auto &j        = view[m_selected_row];
-                m_cancel_target_id   = j.id();
+                const auto &j = view[m_selected_row];
+                if (event == Event::Character('C'))
+                {
+                    auto us = j.id().find('_');
+                    m_cancel_target_id
+                        = (us == std::string::npos) ? j.id()
+                                                    : j.id().substr(0, us);
+                }
+                else
+                {
+                    m_cancel_target_id = j.id();
+                }
                 m_cancel_target_name = j.name();
                 m_show_cancel_dialog = true;
                 return true;
@@ -733,18 +764,114 @@ Slurmon::log_paths_for(const std::string &job_id)
     return ins->second;
 }
 
-// Cancel a job with the given job ID using the scancel command
+// Expand a SLURM array-id expression like "12345_[1-5,7,9-11:2]" into
+// concrete task ids ("12345_1", "12345_2", ...). Plain "12345" and single
+// tasks "12345_3" are returned unchanged. Returns empty on parse failure.
+static std::vector<std::string>
+expand_array_ids(const std::string &id)
+{
+    std::vector<std::string> out;
+    auto is_digits = [](const std::string &s)
+    {
+        if (s.empty())
+            return false;
+        for (char c : s)
+            if (!std::isdigit(static_cast<unsigned char>(c)))
+                return false;
+        return true;
+    };
+
+    auto us = id.find('_');
+    if (us == std::string::npos)
+    {
+        if (!is_digits(id))
+            return {};
+        out.push_back(id);
+        return out;
+    }
+    std::string base = id.substr(0, us);
+    std::string tail = id.substr(us + 1);
+    if (!is_digits(base))
+        return {};
+
+    if (tail.size() < 2 || tail.front() != '[' || tail.back() != ']')
+    {
+        if (!is_digits(tail))
+            return {};
+        out.push_back(id);
+        return out;
+    }
+
+    std::string inner = tail.substr(1, tail.size() - 2);
+    size_t pos = 0;
+    while (pos <= inner.size())
+    {
+        auto comma = inner.find(',', pos);
+        std::string tok
+            = inner.substr(pos, comma == std::string::npos ? std::string::npos
+                                                           : comma - pos);
+        auto colon        = tok.find(':');
+        std::string range = colon == std::string::npos ? tok
+                                                       : tok.substr(0, colon);
+        int step          = 1;
+        if (colon != std::string::npos)
+        {
+            std::string s = tok.substr(colon + 1);
+            if (!is_digits(s))
+                return {};
+            step = std::stoi(s);
+            if (step < 1)
+                return {};
+        }
+        auto dash = range.find('-');
+        if (dash == std::string::npos)
+        {
+            if (!is_digits(range))
+                return {};
+            out.push_back(base + "_" + range);
+        }
+        else
+        {
+            std::string a = range.substr(0, dash);
+            std::string b = range.substr(dash + 1);
+            if (!is_digits(a) || !is_digits(b))
+                return {};
+            int ai = std::stoi(a);
+            int bi = std::stoi(b);
+            if (ai > bi)
+                return {};
+            for (int i = ai; i <= bi; i += step)
+                out.push_back(base + "_" + std::to_string(i));
+        }
+        if (comma == std::string::npos)
+            break;
+        pos = comma + 1;
+    }
+    return out;
+}
+
+// Cancel a job (or expanded array range) using scancel. Only numeric,
+// underscore-separated ids are ever passed to the shell.
 bool
 Slurmon::cancel_job(const std::string &job_id)
 {
     if (job_id.empty())
         return false;
-    for (char c : job_id)
+
+    auto ids = expand_array_ids(job_id);
+    if (ids.empty())
+        return false;
+
+    std::string cmd = "scancel";
+    for (const auto &x : ids)
     {
-        if (!std::isdigit(static_cast<unsigned char>(c)) && c != '_'
-            && c != '.')
-            return false;
+        for (char c : x)
+        {
+            if (!std::isdigit(static_cast<unsigned char>(c)) && c != '_')
+                return false;
+        }
+        cmd += " " + x;
     }
-    std::string cmd = "scancel " + job_id + " >/dev/null 2>&1";
+    cmd += " >/dev/null 2>&1";
     return std::system(cmd.c_str()) == 0;
 }
