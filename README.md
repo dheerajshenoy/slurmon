@@ -13,7 +13,7 @@ SLURM monitoring utility
 
 - [ ] Configuration
 - [ ] Search jobs
-- [ ] Cancel job with confirmation
+- [x] Cancel job with confirmation
 - [ ] Historical job info using `sacct`
 - [ ] Quick resubmit / clone job
 - [ ] Array job expand/collapse view
