@@ -101,7 +101,8 @@ Slurmon::init_ui() noexcept
             details = vbox({
                 field("ID:", text(j.id())),
                 field("Name:", text(j.name())),
-                field("State:", text(j.state()) | state_color(j.state()) | bold),
+                field("State:",
+                      text(j.state()) | state_color(j.state()) | bold),
                 field("User:", text(j.user())),
                 field("Time:", text(j.time())),
                 field("Nodes:", text(j.nodes())),
@@ -114,15 +115,15 @@ Slurmon::init_ui() noexcept
         }
 
         Element log_content;
-        std::string log_title = m_show_stderr ? " Logs (stderr) "
-                                              : " Logs (stdout) ";
+        std::string log_title
+            = m_show_stderr ? " Logs (stderr) " : " Logs (stdout) ";
         if (m_selected_row >= 0
             && m_selected_row < static_cast<int>(m_jobs.size()))
         {
             const auto &j     = m_jobs[m_selected_row];
             const auto &paths = log_paths_for(j.id());
-            const std::string &path = m_show_stderr ? paths.stderr_path
-                                                    : paths.stdout_path;
+            const std::string &path
+                = m_show_stderr ? paths.stderr_path : paths.stdout_path;
 
             if (path.empty())
             {
@@ -160,23 +161,21 @@ Slurmon::init_ui() noexcept
             log_content = text("select a job to see logs") | dim;
         }
 
-        auto right_pane = vbox({window(text(" Details ") | bold, details),
-                                window(text(log_title) | bold, log_content)
-                                    | flex})
-                          | size(WIDTH, GREATER_THAN, 40) | flex;
+        auto right_pane
+            = vbox({window(text(" Details ") | bold, details),
+                    window(text(log_title) | bold, log_content) | flex})
+              | size(WIDTH, GREATER_THAN, 40) | flex;
 
-        auto footer = m_show_footer
-                          ? (text(std::string("j/k navigate, e toggle ")
-                                  + (m_show_stderr ? "stdout" : "stderr")
-                                  + ", q quit")
-                             | dim | center)
-                          : text("");
-
-        return vbox({hbox({
-                         left_pane,
-                         right_pane,
-                     }) | flex,
-                     footer});
+        Elements root = {hbox({left_pane, right_pane}) | flex};
+        if (m_show_footer)
+        {
+            root.push_back(
+                text(std::string(
+                         "j/k navigate, e toggle, F1 to toggle footer, ")
+                     + (m_show_stderr ? "stdout" : "stderr") + ", q quit")
+                | dim | center);
+        }
+        return vbox(std::move(root));
     });
 
     auto container = CatchEvent(renderer, [&](Event event)
