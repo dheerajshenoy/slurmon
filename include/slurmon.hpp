@@ -30,7 +30,14 @@ private:
     void parse_args() noexcept;
     ftxui::Element build_row(const Job &job, bool selected, int id_width);
     ftxui::Elements build_rows(const std::vector<Job> &jobs);
+    enum class ViewMode
+    {
+        Live,
+        History,
+    };
+
     static std::vector<Job> fetch_jobs();
+    static std::vector<Job> fetch_history_jobs();
     static LogPaths fetch_log_paths(const std::string &job_id);
     static std::string read_tail(const std::string &path, size_t max_lines);
     static bool cancel_job(const std::string &job_id);
@@ -45,6 +52,7 @@ private:
     std::mutex m_jobs_mutex;
     std::atomic<bool> m_running = true;
 
+    ViewMode m_view_mode      = ViewMode::Live;
     bool m_loop_after_end     = false;
     bool m_show_footer        = true;
     bool m_show_stderr        = false;

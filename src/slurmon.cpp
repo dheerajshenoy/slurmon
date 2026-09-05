@@ -162,8 +162,14 @@ Slurmon::init_ui() noexcept
         m_split_size = std::max(20, dim.dimx / 2);
     }
 
+    auto fetch_current = [this]
     {
-        auto initial = fetch_jobs();
+        return m_view_mode == ViewMode::History ? fetch_history_jobs()
+                                                : fetch_jobs();
+    };
+
+    {
+        auto initial = fetch_current();
         std::lock_guard<std::mutex> lk(m_jobs_mutex);
         m_jobs = std::move(initial);
     }
@@ -180,7 +186,7 @@ Slurmon::init_ui() noexcept
             if (!m_running.load(std::memory_order_relaxed))
                 break;
 
-            auto fresh = fetch_jobs();
+            auto fresh = fetch_current();
             {
                 std::lock_guard<std::mutex> lk(m_jobs_mutex);
                 m_jobs   = std::move(fresh);
@@ -205,7 +211,10 @@ Slurmon::init_ui() noexcept
             m_selected_row
                 = view.empty() ? -1 : static_cast<int>(view.size()) - 1;
 
-        return window(text(" Jobs ") | bold, vbox(build_rows(view)));
+        std::string title = m_view_mode == ViewMode::History
+                                ? " Jobs (history) "
+                                : " Jobs ";
+        return window(text(title) | bold, vbox(build_rows(view)));
     });
 
     auto right_renderer = Renderer([&]
@@ -340,8 +349,9 @@ Slurmon::init_ui() noexcept
         }
         if (m_show_footer)
         {
-            root.push_back(text("/ search, ? help, F1 footer, q quit") | dim
-                           | center);
+            root.push_back(
+                text("/ search, t history, ? help, F1 footer, q quit") | dim
+                | center);
         }
         Element page = vbox(std::move(root));
 
@@ -364,6 +374,7 @@ Slurmon::init_ui() noexcept
                              binding("c", "cancel selected job / array range"),
                              binding("C", "cancel parent job (array root)"),
                              binding("/", "search (id/name/state/time)"),
+                             binding("t", "toggle live / history view"),
                              binding("Esc", "clear active filter"),
                              binding("?", "toggle this help"),
                              binding("F1", "toggle footer"),
@@ -460,6 +471,17 @@ Slurmon::init_ui() noexcept
         {
             m_search_mode = true;
             m_search_buffer.clear();
+            return true;
+        }
+
+        if (event == Event::Character('t'))
+        {
+            m_view_mode = m_view_mode == ViewMode::Live ? ViewMode::History
+                                                        : ViewMode::Live;
+            auto fresh = fetch_current();
+            std::lock_guard<std::mutex> lk(m_jobs_mutex);
+            m_jobs         = std::move(fresh);
+            m_selected_row = m_jobs.empty() ? -1 : 0;
             return true;
         }
 
@@ -811,6 +833,48 @@ Slurmon::fetch_jobs()
         }
     }
 
+    return jobs;
+}
+
+// Fetch historical jobs from the SLURM accounting database using sacct.
+// Shows jobs completed since 00:00 today (sacct's default window).
+std::vector<Job>
+Slurmon::fetch_history_jobs()
+{
+    std::vector<Job> jobs;
+
+    std::unique_ptr<FILE, decltype(&pclose)> pipe(
+        popen("sacct --noheader -X -P "
+              "-o JobID,JobName,State,User,Elapsed,NNodes,NodeList "
+              "2>/dev/null",
+              "r"),
+        pclose);
+    if (!pipe)
+        return jobs;
+
+    std::array<char, 512> buffer;
+    std::string output;
+    while (std::fgets(buffer.data(), buffer.size(), pipe.get()) != nullptr)
+        output += buffer.data();
+
+    int exit_code = pclose(pipe.release());
+    if (exit_code != 0)
+        return jobs;
+
+    std::istringstream stream(output);
+    std::string line;
+    while (std::getline(stream, line))
+    {
+        std::istringstream ls(line);
+        std::string id, name, state, user, time, nodes, nodelist;
+        if (std::getline(ls, id, '|') && std::getline(ls, name, '|')
+            && std::getline(ls, state, '|') && std::getline(ls, user, '|')
+            && std::getline(ls, time, '|') && std::getline(ls, nodes, '|')
+            && std::getline(ls, nodelist))
+        {
+            jobs.emplace_back(id, name, state, user, time, nodes, nodelist);
+        }
+    }
     return jobs;
 }
 
