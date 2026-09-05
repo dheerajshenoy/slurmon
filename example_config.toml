@@ -6,7 +6,18 @@ show = true
 [job_list]
 show = true
 loop_after_end = false
+refresh_interval = 5   # seconds between squeue refreshes
 
 [log_viewer]
 show = true
-error_first = false
+error_first = false    # show stderr first instead of stdout
+
+[detail_view]
+show = true
+show_id = true
+show_name = true
+show_state = true
+show_user = true
+show_time = true
+show_nodes = true
+show_nodelist = true
