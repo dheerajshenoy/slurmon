@@ -3,6 +3,7 @@
 #include "job.hpp"
 
 #include <atomic>
+#include <chrono>
 #include <mutex>
 #include <unordered_map>
 
@@ -36,5 +37,6 @@ private:
     bool m_show_footer = true;
     bool m_show_stderr = false;
     int m_split_size   = 60;
+    std::chrono::steady_clock::time_point m_pending_g_time{};
     std::unordered_map<std::string, LogPaths> m_log_paths_cache;
 };

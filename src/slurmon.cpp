@@ -213,6 +213,39 @@ Slurmon::init_ui() noexcept
             return false;
         }
 
+        if (event == Event::Character('g'))
+        {
+            using clock       = std::chrono::steady_clock;
+            constexpr auto kTimeout = std::chrono::milliseconds(500);
+            auto now          = clock::now();
+            if (m_pending_g_time.time_since_epoch().count() != 0
+                && now - m_pending_g_time < kTimeout)
+            {
+                m_pending_g_time = {};
+                std::lock_guard<std::mutex> lk(m_jobs_mutex);
+                if (!m_jobs.empty())
+                {
+                    m_selected_row = 0;
+                    return true;
+                }
+                return false;
+            }
+            m_pending_g_time = now;
+            return true;
+        }
+
+        if (event == Event::Character('G'))
+        {
+            m_pending_g_time = {};
+            std::lock_guard<std::mutex> lk(m_jobs_mutex);
+            if (!m_jobs.empty())
+            {
+                m_selected_row = static_cast<int>(m_jobs.size()) - 1;
+                return true;
+            }
+            return false;
+        }
+
         if (event == Event::Character('e'))
         {
             m_show_stderr = !m_show_stderr;
