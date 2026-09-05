@@ -37,7 +37,7 @@ private:
     argparse::ArgumentParser m_argparse = argparse::ArgumentParser(
         "slurmon", SLURMON_VERSION, argparse::default_arguments::help);
     int m_selected_row = -1;
-    int m_split_size   = 60;
+    int m_split_size   = -1;
     std::vector<Job> m_jobs;
     std::mutex m_jobs_mutex;
     std::atomic<bool> m_running = true;

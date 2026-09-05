@@ -139,6 +139,12 @@ Slurmon::init_ui() noexcept
 
     auto screen = ScreenInteractive::Fullscreen();
 
+    if (m_split_size < 0)
+    {
+        auto dim       = Terminal::Size();
+        m_split_size   = std::max(20, dim.dimx / 2);
+    }
+
     {
         auto initial = fetch_jobs();
         std::lock_guard<std::mutex> lk(m_jobs_mutex);
