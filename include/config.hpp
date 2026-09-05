@@ -22,7 +22,7 @@ struct Config
                                   // opening the log viewer
     } log_view;
 
-    struct DetailsView
+    struct DetailView
     {
         bool show      = true;
         bool show_id   = true;
@@ -32,5 +32,5 @@ struct Config
         bool show_time = true;
         bool show_nodes = true;
         bool show_nodelist = true;
-    } details_view;
+    } detail_view;
 };

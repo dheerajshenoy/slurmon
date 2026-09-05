@@ -226,21 +226,21 @@ Slurmon::init_ui() noexcept
                 });
             };
             Elements rows;
-            if (m_config.details_view.show_id)
+            if (m_config.detail_view.show_id)
                 rows.push_back(field("ID:", text(j.id())));
-            if (m_config.details_view.show_name)
+            if (m_config.detail_view.show_name)
                 rows.push_back(field("Name:", text(j.name())));
-            if (m_config.details_view.show_state)
+            if (m_config.detail_view.show_state)
                 rows.push_back(field(
                     "State:",
                     text(j.state()) | state_color(j.state()) | bold));
-            if (m_config.details_view.show_user)
+            if (m_config.detail_view.show_user)
                 rows.push_back(field("User:", text(j.user())));
-            if (m_config.details_view.show_time)
+            if (m_config.detail_view.show_time)
                 rows.push_back(field("Time:", text(j.time())));
-            if (m_config.details_view.show_nodes)
+            if (m_config.detail_view.show_nodes)
                 rows.push_back(field("Nodes:", text(j.nodes())));
-            if (m_config.details_view.show_nodelist)
+            if (m_config.detail_view.show_nodelist)
                 rows.push_back(
                     field("Nodelist:", text(j.nodelist_or_reason())));
             details = rows.empty() ? filler() : vbox(std::move(rows));
@@ -298,7 +298,7 @@ Slurmon::init_ui() noexcept
         }
 
         Elements panes;
-        if (m_config.details_view.show)
+        if (m_config.detail_view.show)
             panes.push_back(window(text(" Details ") | bold, details));
         if (m_config.log_view.show)
             panes.push_back(window(text(log_title) | bold, log_content) | flex);
@@ -681,23 +681,23 @@ Slurmon::init_config() noexcept
                       m_config.log_view.error_first);
     m_show_stderr = m_config.log_view.error_first;
 
-    // [details_view]
+    // [detail_view]
     load_config_field(toml, "detail_view", "show",
-                      m_config.details_view.show);
+                      m_config.detail_view.show);
     load_config_field(toml, "detail_view", "show_id",
-                      m_config.details_view.show_id);
+                      m_config.detail_view.show_id);
     load_config_field(toml, "detail_view", "show_name",
-                      m_config.details_view.show_name);
+                      m_config.detail_view.show_name);
     load_config_field(toml, "detail_view", "show_state",
-                      m_config.details_view.show_state);
+                      m_config.detail_view.show_state);
     load_config_field(toml, "detail_view", "show_user",
-                      m_config.details_view.show_user);
+                      m_config.detail_view.show_user);
     load_config_field(toml, "detail_view", "show_time",
-                      m_config.details_view.show_time);
+                      m_config.detail_view.show_time);
     load_config_field(toml, "detail_view", "show_nodes",
-                      m_config.details_view.show_nodes);
+                      m_config.detail_view.show_nodes);
     load_config_field(toml, "detail_view", "show_nodelist",
-                      m_config.details_view.show_nodelist);
+                      m_config.detail_view.show_nodelist);
 }
 
 // Build a single row for the job table
