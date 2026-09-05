@@ -317,8 +317,13 @@ Slurmon::init_ui() noexcept
             = ResizableSplitLeft(left_renderer, right_renderer, &m_split_size);
     else if (right_visible)
         content_component = Container::Vertical({right_renderer});
-    else
+    else if (left_visible)
         content_component = Container::Vertical({left_renderer});
+    else
+        content_component = Renderer([] {
+            return text("All views hidden, nothing to see here") | dim | center
+                   | flex;
+        });
 
     auto renderer = Renderer(content_component, [&]
     {
