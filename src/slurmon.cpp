@@ -10,6 +10,7 @@
 #include <sstream>
 #include <thread>
 
+// Check if a job matches the search query (case-insensitive)
 static bool
 matches_query(const Job &j, const std::string &q_lower)
 {
@@ -29,6 +30,7 @@ matches_query(const Job &j, const std::string &q_lower)
            || contains(j.time());
 }
 
+// Filter jobs based on the search query (case-insensitive)
 static std::vector<Job>
 filter_jobs(const std::vector<Job> &jobs, const std::string &query)
 {
@@ -47,6 +49,7 @@ filter_jobs(const std::vector<Job> &jobs, const std::string &query)
     return out;
 }
 
+// Return a color decorator based on the job state
 static ftxui::Decorator
 state_color(const std::string &state)
 {
@@ -69,16 +72,65 @@ state_color(const std::string &state)
     return color(Color::Default);
 }
 
-Slurmon::Slurmon() : m_selected_row(-1) {}
+// Constructor for the Slurmon class
+Slurmon::Slurmon(int argc, char **argv) : m_selected_row(-1)
+{
+    init_args();
+    try
+    {
+        m_argparse.parse_args(argc, argv);
+    }
+    catch (const std::exception &e)
+    {
+        std::cerr << e.what() << std::endl;
+        std::exit(1);
+    }
+    parse_args();
+}
 
-Slurmon::~Slurmon() {}
+// Destructor for the Slurmon class
+Slurmon::~Slurmon()
+{
+    m_running.store(false, std::memory_order_relaxed);
+}
 
+// Run the main loop of the application
 void
 Slurmon::run()
 {
     init_ui();
 }
 
+// Initialize command-line arguments
+void
+Slurmon::init_args() noexcept
+{
+    m_argparse.add_argument("-c", "--config")
+        .nargs(1)
+        .help("Path to the configuration file (TOML format)");
+
+    m_argparse.add_argument("-v", "--version")
+        .nargs(0)
+        .help("Print version information and exit");
+}
+
+// Parse command-line arguments
+void
+Slurmon::parse_args() noexcept
+{
+    if (m_argparse.is_used("--config"))
+    {
+        m_config_path = m_argparse.get<std::string>("--config");
+    }
+
+    if (m_argparse.is_used("--version"))
+    {
+        std::cout << "slurmon " << SLURMON_VERSION << std::endl;
+        std::exit(0);
+    }
+}
+
+// Initialize the user interface using FTXUI
 void
 Slurmon::init_ui() noexcept
 {
@@ -125,8 +177,8 @@ Slurmon::init_ui() noexcept
         if (m_selected_row == -1 && !view.empty())
             m_selected_row = 0;
         if (m_selected_row >= static_cast<int>(view.size()))
-            m_selected_row = view.empty() ? -1
-                                          : static_cast<int>(view.size()) - 1;
+            m_selected_row
+                = view.empty() ? -1 : static_cast<int>(view.size()) - 1;
 
         return window(text(" Jobs ") | bold, vbox(build_rows(view)));
     });
@@ -224,13 +276,11 @@ Slurmon::init_ui() noexcept
         if (m_search_mode || !m_search_query.empty())
         {
             std::string prefix = m_search_mode ? "/" : "filter: ";
-            std::string q      = m_search_mode ? m_search_buffer
-                                               : m_search_query;
-            auto bar = hbox({text(prefix) | bold,
-                             text(q),
-                             text(m_search_mode ? "_" : "") | blink})
-                       | (m_search_mode ? color(Color::Yellow)
-                                        : color(Color::Default));
+            std::string q = m_search_mode ? m_search_buffer : m_search_query;
+            auto bar      = hbox({text(prefix) | bold, text(q),
+                                  text(m_search_mode ? "_" : "") | blink})
+                            | (m_search_mode ? color(Color::Yellow)
+                                             : color(Color::Default));
             root.push_back(bar);
         }
         if (m_show_footer)
@@ -249,25 +299,24 @@ Slurmon::init_ui() noexcept
                     text(desc),
                 });
             };
-            auto help = window(text(" Help ") | bold,
-                               vbox({
-                                   binding("j / k", "move selection down / up"),
-                                   binding("gg", "jump to first job"),
-                                   binding("G", "jump to last job"),
-                                   binding("e", "toggle stdout / stderr log"),
-                                   binding("c", "cancel selected job"),
-                                   binding("/", "search (id/name/state/time)"),
-                                   binding("Esc", "clear active filter"),
-                                   binding("?", "toggle this help"),
-                                   binding("F1", "toggle footer"),
-                                   binding("q", "quit"),
-                                   text(""),
-                                   text("mouse: drag the vertical split")
-                                       | dim,
-                                   text("press any key to close") | dim
-                                       | center,
-                               }))
-                        | size(WIDTH, GREATER_THAN, 44) | clear_under | center;
+            auto help
+                = window(text(" Help ") | bold,
+                         vbox({
+                             binding("j / k", "move selection down / up"),
+                             binding("gg", "jump to first job"),
+                             binding("G", "jump to last job"),
+                             binding("e", "toggle stdout / stderr log"),
+                             binding("c", "cancel selected job"),
+                             binding("/", "search (id/name/state/time)"),
+                             binding("Esc", "clear active filter"),
+                             binding("?", "toggle this help"),
+                             binding("F1", "toggle footer"),
+                             binding("q", "quit"),
+                             text(""),
+                             text("mouse: drag the vertical split") | dim,
+                             text("press any key to close") | dim | center,
+                         }))
+                  | size(WIDTH, GREATER_THAN, 44) | clear_under | center;
             page = dbox({page, help});
         }
 
@@ -292,7 +341,7 @@ Slurmon::init_ui() noexcept
                                  vbox(std::move(dialog_children)))
                           | size(WIDTH, GREATER_THAN, 40) | clear_under
                           | center;
-            page = dbox({page, dialog});
+            page        = dbox({page, dialog});
         }
         return page;
     });
@@ -366,8 +415,8 @@ Slurmon::init_ui() noexcept
             if (event == Event::Character('y') || event == Event::Return)
             {
                 bool ok = cancel_job(m_cancel_target_id);
-                m_cancel_status = ok ? "cancelled — refreshing…"
-                                     : "scancel failed";
+                m_cancel_status
+                    = ok ? "cancelled — refreshing…" : "scancel failed";
                 if (ok)
                 {
                     auto fresh = fetch_jobs();
@@ -410,8 +459,8 @@ Slurmon::init_ui() noexcept
         if (event == Event::Character('j'))
         {
             std::lock_guard<std::mutex> lk(m_jobs_mutex);
-            auto vsz = static_cast<int>(
-                filter_jobs(m_jobs, m_search_query).size());
+            auto vsz
+                = static_cast<int>(filter_jobs(m_jobs, m_search_query).size());
             if (m_selected_row < vsz - 1)
             {
                 m_selected_row++;
@@ -433,9 +482,9 @@ Slurmon::init_ui() noexcept
 
         if (event == Event::Character('g'))
         {
-            using clock       = std::chrono::steady_clock;
+            using clock             = std::chrono::steady_clock;
             constexpr auto kTimeout = std::chrono::milliseconds(500);
-            auto now          = clock::now();
+            auto now                = clock::now();
             if (m_pending_g_time.time_since_epoch().count() != 0
                 && now - m_pending_g_time < kTimeout)
             {
@@ -458,8 +507,8 @@ Slurmon::init_ui() noexcept
         {
             m_pending_g_time = {};
             std::lock_guard<std::mutex> lk(m_jobs_mutex);
-            auto vsz = static_cast<int>(
-                filter_jobs(m_jobs, m_search_query).size());
+            auto vsz
+                = static_cast<int>(filter_jobs(m_jobs, m_search_query).size());
             if (vsz > 0)
             {
                 m_selected_row = vsz - 1;
@@ -497,6 +546,7 @@ Slurmon::init_ui() noexcept
         ticker.join();
 }
 
+// Build a single row for the job table
 ftxui::Element
 Slurmon::build_row(const Job &job, bool selected)
 {
@@ -523,6 +573,7 @@ Slurmon::build_row(const Job &job, bool selected)
     return row;
 }
 
+// Build all rows for the job table
 ftxui::Elements
 Slurmon::build_rows(const std::vector<Job> &jobs)
 {
@@ -543,6 +594,7 @@ Slurmon::build_rows(const std::vector<Job> &jobs)
     return rows;
 }
 
+// Fetch jobs from the Slurm scheduler using the squeue command
 std::vector<Job>
 Slurmon::fetch_jobs()
 {
@@ -596,6 +648,7 @@ Slurmon::fetch_jobs()
     return jobs;
 }
 
+// Fetch the log paths for a given job ID using the scontrol command
 Slurmon::LogPaths
 Slurmon::fetch_log_paths(const std::string &job_id)
 {
@@ -628,6 +681,7 @@ Slurmon::fetch_log_paths(const std::string &job_id)
     return result;
 }
 
+// Read the last `max_lines` lines from a file at the given path
 std::string
 Slurmon::read_tail(const std::string &path, size_t max_lines)
 {
@@ -653,6 +707,8 @@ Slurmon::read_tail(const std::string &path, size_t max_lines)
     return out;
 }
 
+// Get the log paths for a given job ID, using a cache to avoid repeated calls
+// to fetch_log_paths
 const Slurmon::LogPaths &
 Slurmon::log_paths_for(const std::string &job_id)
 {
@@ -663,6 +719,7 @@ Slurmon::log_paths_for(const std::string &job_id)
     return ins->second;
 }
 
+// Cancel a job with the given job ID using the scancel command
 bool
 Slurmon::cancel_job(const std::string &job_id)
 {

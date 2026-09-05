@@ -1,5 +1,6 @@
 #pragma once
 
+#include "argparse.hpp"
 #include "job.hpp"
 
 #include <atomic>
@@ -10,7 +11,7 @@
 class Slurmon
 {
 public:
-    Slurmon();
+    Slurmon(int argc, char **argv);
     ~Slurmon();
     void run();
 
@@ -21,6 +22,8 @@ private:
         std::string stderr_path;
     };
 
+    void init_args() noexcept;
+    void parse_args() noexcept;
     void init_ui() noexcept;
     ftxui::Element build_row(const Job &job, bool selected);
     ftxui::Elements build_rows(const std::vector<Job> &jobs);
@@ -28,24 +31,30 @@ private:
     static LogPaths fetch_log_paths(const std::string &job_id);
     static std::string read_tail(const std::string &path, size_t max_lines);
     static bool cancel_job(const std::string &job_id);
-
     const LogPaths &log_paths_for(const std::string &job_id);
 
-    int m_selected_row;
+private:
+    argparse::ArgumentParser m_argparse = argparse::ArgumentParser(
+        "slurmon", SLURMON_VERSION, argparse::default_arguments::help);
+    int m_selected_row = -1;
+    int m_split_size   = 60;
     std::vector<Job> m_jobs;
     std::mutex m_jobs_mutex;
-    std::atomic<bool> m_running{true};
-    bool m_show_footer = true;
-    bool m_show_stderr = false;
-    int m_split_size   = 60;
-    std::chrono::steady_clock::time_point m_pending_g_time{};
+    std::atomic<bool> m_running = true;
+
+    bool m_show_footer        = true;
+    bool m_show_stderr        = false;
     bool m_show_help_dialog   = false;
     bool m_search_mode        = false;
+    bool m_show_cancel_dialog = false;
+
+    std::chrono::steady_clock::time_point m_pending_g_time;
+
     std::string m_search_buffer;
     std::string m_search_query;
-    bool m_show_cancel_dialog = false;
     std::string m_cancel_target_id;
     std::string m_cancel_target_name;
     std::string m_cancel_status;
     std::unordered_map<std::string, LogPaths> m_log_paths_cache;
+    std::string m_config_path;
 };

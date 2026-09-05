@@ -1,9 +1,9 @@
 #include "slurmon.hpp"
 
 int
-main()
+main(int argc, char **argv)
 {
-    Slurmon slurmon;
+    Slurmon slurmon(argc, argv);
     slurmon.run();
     return 0;
 }

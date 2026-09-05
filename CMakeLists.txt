@@ -31,3 +31,7 @@ target_link_libraries(${PROJECT_NAME} PRIVATE
 target_precompile_headers(${PROJECT_NAME} PRIVATE
     ${CMAKE_SOURCE_DIR}/include/pch.hpp)
 
+target_compile_definitions(${PROJECT_NAME} PRIVATE
+    SLURMON_VERSION="${PROJECT_VERSION}"
+)
+
