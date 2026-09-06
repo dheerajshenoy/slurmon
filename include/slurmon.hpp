@@ -45,11 +45,11 @@ private:
     void parse_args() noexcept;
     ftxui::Elements build_rows(const std::vector<const Job *> &jobs);
 
-    static std::vector<Job> fetch_jobs();
-    static std::vector<Job> fetch_history_jobs();
+    std::vector<Job> fetch_jobs();
+    std::vector<Job> fetch_history_jobs();
     static LogPaths fetch_log_paths(const std::string &job_id);
     static std::string read_tail(const std::string &path, size_t max_lines);
-    static bool cancel_job(const std::string &job_id);
+    bool cancel_job(const std::string &job_id);
     const LogPaths &log_paths_for(const std::string &job_id);
 
 private:
@@ -82,6 +82,9 @@ private:
     std::string m_cancel_status;
     std::unordered_map<std::string, LogPaths> m_log_paths_cache;
     std::string m_config_path;
+    std::string m_squeue_args;
+    std::string m_sacct_args;
+    std::string m_scancel_args;
 
     Config m_config;
 };

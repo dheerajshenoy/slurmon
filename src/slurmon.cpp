@@ -308,6 +308,21 @@ Slurmon::init_args() noexcept
     m_argparse.add_argument("-v", "--version")
         .nargs(0)
         .help("Print version information and exit");
+
+    m_argparse.add_argument("--squeue-args")
+        .nargs(1)
+        .help("Extra arguments appended to the squeue command "
+              "(e.g. --squeue-args=\"-u $USER -p gpu\")");
+
+    m_argparse.add_argument("--sacct-args")
+        .nargs(1)
+        .help("Extra arguments appended to the sacct command "
+              "(e.g. --sacct-args=\"-S 2024-01-01 -u $USER\")");
+
+    m_argparse.add_argument("--scancel-args")
+        .nargs(1)
+        .help("Extra arguments appended to the scancel command "
+              "(e.g. --scancel-args=\"--signal=TERM\")");
 }
 
 // Parse command-line arguments
@@ -324,6 +339,13 @@ Slurmon::parse_args() noexcept
         std::cout << "slurmon " << SLURMON_VERSION << std::endl;
         std::exit(0);
     }
+
+    if (m_argparse.is_used("--squeue-args"))
+        m_squeue_args = m_argparse.get<std::string>("--squeue-args");
+    if (m_argparse.is_used("--sacct-args"))
+        m_sacct_args = m_argparse.get<std::string>("--sacct-args");
+    if (m_argparse.is_used("--scancel-args"))
+        m_scancel_args = m_argparse.get<std::string>("--scancel-args");
 }
 
 // Initialize the user interface using FTXUI
@@ -1221,7 +1243,10 @@ Slurmon::fetch_jobs()
         keys.push_back(c.key);
     }
 
-    std::string cmd = "squeue --noheader -o \"" + fmt + "\" 2>/dev/null";
+    std::string cmd = "squeue --noheader -o \"" + fmt + "\"";
+    if (!m_squeue_args.empty())
+        cmd += " " + m_squeue_args;
+    cmd += " 2>/dev/null";
     std::unique_ptr<FILE, decltype(&pclose)> pipe(popen(cmd.c_str(), "r"),
                                                   pclose);
     if (!pipe)
@@ -1261,8 +1286,10 @@ Slurmon::fetch_history_jobs()
         keys.push_back(c.key);
     }
 
-    std::string cmd
-        = "sacct --noheader -X -P -o " + fields + " 2>/dev/null";
+    std::string cmd = "sacct --noheader -X -P -o " + fields;
+    if (!m_sacct_args.empty())
+        cmd += " " + m_sacct_args;
+    cmd += " 2>/dev/null";
     std::unique_ptr<FILE, decltype(&pclose)> pipe(popen(cmd.c_str(), "r"),
                                                   pclose);
     if (!pipe)
@@ -1452,6 +1479,8 @@ Slurmon::cancel_job(const std::string &job_id)
         return false;
 
     std::string cmd = "scancel";
+    if (!m_scancel_args.empty())
+        cmd += " " + m_scancel_args;
     for (const auto &x : ids)
     {
         for (char c : x)
