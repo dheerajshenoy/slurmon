@@ -7,6 +7,8 @@ show = true
 show = true
 loop_after_end = false
 refresh_interval = 5   # seconds between squeue refreshes
+sort_by = "none"       # none | id | name | state | time
+sort_descending = false
 
 [log_view]
 show = true

@@ -66,6 +66,157 @@ filter_jobs(const std::vector<Job> &jobs, const std::string &query)
 static std::vector<std::string>
 expand_array_ids(const std::string &id);
 
+// Parse a numeric prefix from a string; used for id sorting so that "10"
+// sorts after "9" instead of lexicographically before it. Non-numeric ids
+// fall back to string compare.
+static bool
+numeric_less(const std::string &a, const std::string &b)
+{
+    auto num_prefix = [](const std::string &s, unsigned long long &n) -> bool
+    {
+        if (s.empty() || !std::isdigit(static_cast<unsigned char>(s[0])))
+            return false;
+        try
+        {
+            n = std::stoull(s);
+            return true;
+        }
+        catch (...)
+        {
+            return false;
+        }
+    };
+    unsigned long long na = 0, nb = 0;
+    bool ok_a = num_prefix(a, na);
+    bool ok_b = num_prefix(b, nb);
+    if (ok_a && ok_b && na != nb)
+        return na < nb;
+    return a < b;
+}
+
+// Convert SLURM elapsed strings ("D-HH:MM:SS", "HH:MM:SS", "MM:SS",
+// "SS", or "INVALID"/"UNLIMITED"/"NOT_SET") to seconds. Non-parseable
+// values yield -1 so they sort together at one end.
+static long long
+time_to_seconds(const std::string &s)
+{
+    if (s.empty())
+        return -1;
+    long long days = 0;
+    std::string rest = s;
+    auto dash        = rest.find('-');
+    if (dash != std::string::npos)
+    {
+        try
+        {
+            days = std::stoll(rest.substr(0, dash));
+        }
+        catch (...)
+        {
+            return -1;
+        }
+        rest = rest.substr(dash + 1);
+    }
+    std::vector<long long> parts;
+    std::string cur;
+    for (char c : rest)
+    {
+        if (c == ':')
+        {
+            if (cur.empty())
+                return -1;
+            try
+            {
+                parts.push_back(std::stoll(cur));
+            }
+            catch (...)
+            {
+                return -1;
+            }
+            cur.clear();
+        }
+        else if (std::isdigit(static_cast<unsigned char>(c)))
+        {
+            cur.push_back(c);
+        }
+        else
+        {
+            return -1;
+        }
+    }
+    if (!cur.empty())
+    {
+        try
+        {
+            parts.push_back(std::stoll(cur));
+        }
+        catch (...)
+        {
+            return -1;
+        }
+    }
+    long long h = 0, m = 0, sec = 0;
+    if (parts.size() == 3)
+    {
+        h   = parts[0];
+        m   = parts[1];
+        sec = parts[2];
+    }
+    else if (parts.size() == 2)
+    {
+        m   = parts[0];
+        sec = parts[1];
+    }
+    else if (parts.size() == 1)
+    {
+        sec = parts[0];
+    }
+    else
+    {
+        return -1;
+    }
+    return days * 86400 + h * 3600 + m * 60 + sec;
+}
+
+static void
+sort_jobs(std::vector<Job> &jobs, Slurmon::SortKey key, bool descending)
+{
+    if (key == Slurmon::SortKey::None)
+        return;
+    auto cmp = [key](const Job &a, const Job &b)
+    {
+        switch (key)
+        {
+        case Slurmon::SortKey::Id:
+            return numeric_less(a.id(), b.id());
+        case Slurmon::SortKey::Name:
+            return a.name() < b.name();
+        case Slurmon::SortKey::State:
+            return a.state() < b.state();
+        case Slurmon::SortKey::Time:
+            return time_to_seconds(a.time()) < time_to_seconds(b.time());
+        default:
+            return false;
+        }
+    };
+    std::stable_sort(jobs.begin(), jobs.end(),
+                     [&](const Job &a, const Job &b)
+                     { return descending ? cmp(b, a) : cmp(a, b); });
+}
+
+static const char *
+sort_key_label(Slurmon::SortKey k)
+{
+    switch (k)
+    {
+    case Slurmon::SortKey::Id:    return "id";
+    case Slurmon::SortKey::Name:  return "name";
+    case Slurmon::SortKey::State: return "state";
+    case Slurmon::SortKey::Time:  return "time";
+    default:                      return "none";
+    }
+}
+
 // Return a color decorator based on the job state
 static ftxui::Decorator
 state_color(const std::string &state)
@@ -168,6 +319,13 @@ Slurmon::init_ui() noexcept
                                                 : fetch_jobs();
     };
 
+    auto view_of = [this](const std::vector<Job> &src)
+    {
+        auto v = filter_jobs(src, m_search_query);
+        sort_jobs(v, m_sort_key, m_sort_descending);
+        return v;
+    };
+
     {
         auto initial = fetch_current();
         std::lock_guard<std::mutex> lk(m_jobs_mutex);
@@ -191,7 +349,7 @@ Slurmon::init_ui() noexcept
                 std::lock_guard<std::mutex> lk(m_jobs_mutex);
                 m_jobs   = std::move(fresh);
                 auto vsz = static_cast<int>(
-                    filter_jobs(m_jobs, m_search_query).size());
+                    view_of(m_jobs).size());
                 if (m_selected_row >= vsz)
                     m_selected_row = vsz - 1;
                 if (m_selected_row < 0 && vsz > 0)
@@ -204,7 +362,7 @@ Slurmon::init_ui() noexcept
     auto left_renderer = Renderer([&]
     {
         std::lock_guard<std::mutex> lk(m_jobs_mutex);
-        auto view = filter_jobs(m_jobs, m_search_query);
+        auto view = view_of(m_jobs);
         if (m_selected_row == -1 && !view.empty())
             m_selected_row = 0;
         if (m_selected_row >= static_cast<int>(view.size()))
@@ -214,13 +372,19 @@ Slurmon::init_ui() noexcept
         std::string title = m_view_mode == ViewMode::History
                                 ? " Jobs (history) "
                                 : " Jobs ";
+        if (m_sort_key != SortKey::None)
+        {
+            title += "[sort: ";
+            title += sort_key_label(m_sort_key);
+            title += m_sort_descending ? " ▼] " : " ▲] ";
+        }
         return window(text(title) | bold, vbox(build_rows(view)));
     });
 
     auto right_renderer = Renderer([&]
     {
         std::lock_guard<std::mutex> lk(m_jobs_mutex);
-        auto view = filter_jobs(m_jobs, m_search_query);
+        auto view = view_of(m_jobs);
 
         Element details;
         if (m_selected_row >= 0
@@ -350,7 +514,7 @@ Slurmon::init_ui() noexcept
         if (m_show_footer)
         {
             root.push_back(
-                text("/ search, t history, ? help, F1 footer, q quit") | dim
+                text("/ search, s sort, t history, ? help, F1 footer, q quit") | dim
                 | center);
         }
         Element page = vbox(std::move(root));
@@ -375,6 +539,8 @@ Slurmon::init_ui() noexcept
                              binding("C", "cancel parent job (array root)"),
                              binding("/", "search (id/name/state/time)"),
                              binding("t", "toggle live / history view"),
+                             binding("s", "cycle sort (none→id→name→state→time)"),
+                             binding("S", "toggle sort direction"),
                              binding("Esc", "clear active filter"),
                              binding("?", "toggle this help"),
                              binding("F1", "toggle footer"),
@@ -443,7 +609,7 @@ Slurmon::init_ui() noexcept
                 m_search_mode  = false;
                 std::lock_guard<std::mutex> lk(m_jobs_mutex);
                 auto vsz = static_cast<int>(
-                    filter_jobs(m_jobs, m_search_query).size());
+                    view_of(m_jobs).size());
                 m_selected_row = vsz > 0 ? 0 : -1;
                 return true;
             }
@@ -518,7 +684,7 @@ Slurmon::init_ui() noexcept
                     std::lock_guard<std::mutex> lk(m_jobs_mutex);
                     m_jobs   = std::move(fresh);
                     auto vsz = static_cast<int>(
-                        filter_jobs(m_jobs, m_search_query).size());
+                        view_of(m_jobs).size());
                     if (m_selected_row >= vsz)
                         m_selected_row = vsz - 1;
                 }
@@ -538,7 +704,7 @@ Slurmon::init_ui() noexcept
         if (event == Event::Character('c') || event == Event::Character('C'))
         {
             std::lock_guard<std::mutex> lk(m_jobs_mutex);
-            auto view = filter_jobs(m_jobs, m_search_query);
+            auto view = view_of(m_jobs);
             if (m_selected_row >= 0
                 && m_selected_row < static_cast<int>(view.size()))
             {
@@ -565,7 +731,7 @@ Slurmon::init_ui() noexcept
         {
             std::lock_guard<std::mutex> lk(m_jobs_mutex);
             auto vsz
-                = static_cast<int>(filter_jobs(m_jobs, m_search_query).size());
+                = static_cast<int>(view_of(m_jobs).size());
             if (m_selected_row < vsz - 1)
             {
                 m_selected_row++;
@@ -590,7 +756,7 @@ Slurmon::init_ui() noexcept
             if (m_loop_after_end)
             {
                 auto vsz = static_cast<int>(
-                    filter_jobs(m_jobs, m_search_query).size());
+                    view_of(m_jobs).size());
                 if (vsz > 0)
                 {
                     m_selected_row = vsz - 1;
@@ -611,7 +777,7 @@ Slurmon::init_ui() noexcept
                 m_pending_g_time = {};
                 std::lock_guard<std::mutex> lk(m_jobs_mutex);
                 auto vsz = static_cast<int>(
-                    filter_jobs(m_jobs, m_search_query).size());
+                    view_of(m_jobs).size());
                 if (vsz > 0)
                 {
                     m_selected_row = 0;
@@ -628,7 +794,7 @@ Slurmon::init_ui() noexcept
             m_pending_g_time = {};
             std::lock_guard<std::mutex> lk(m_jobs_mutex);
             auto vsz
-                = static_cast<int>(filter_jobs(m_jobs, m_search_query).size());
+                = static_cast<int>(view_of(m_jobs).size());
             if (vsz > 0)
             {
                 m_selected_row = vsz - 1;
@@ -640,6 +806,31 @@ Slurmon::init_ui() noexcept
         if (event == Event::Character('e'))
         {
             m_show_stderr = !m_show_stderr;
+            return true;
+        }
+
+        if (event == Event::Character('s'))
+        {
+            switch (m_sort_key)
+            {
+            case SortKey::None:  m_sort_key = SortKey::Id;    break;
+            case SortKey::Id:    m_sort_key = SortKey::Name;  break;
+            case SortKey::Name:  m_sort_key = SortKey::State; break;
+            case SortKey::State: m_sort_key = SortKey::Time;  break;
+            case SortKey::Time:  m_sort_key = SortKey::None;  break;
+            }
+            std::lock_guard<std::mutex> lk(m_jobs_mutex);
+            auto vsz       = static_cast<int>(view_of(m_jobs).size());
+            m_selected_row = vsz > 0 ? 0 : -1;
+            return true;
+        }
+
+        if (event == Event::Character('S'))
+        {
+            m_sort_descending = !m_sort_descending;
+            std::lock_guard<std::mutex> lk(m_jobs_mutex);
+            auto vsz       = static_cast<int>(view_of(m_jobs).size());
+            m_selected_row = vsz > 0 ? 0 : -1;
             return true;
         }
 
@@ -700,6 +891,19 @@ Slurmon::init_config() noexcept
         load_config_field(toml, "job_view", "refresh_interval", tmp);
         if (tmp >= 1)
             m_config.job_view.refresh_interval = static_cast<int>(tmp);
+    }
+
+    load_config_field(toml, "job_view", "sort_by", m_config.job_view.sort_by);
+    load_config_field(toml, "job_view", "sort_descending",
+                      m_config.job_view.sort_descending);
+    {
+        const auto &sb = m_config.job_view.sort_by;
+        if (sb == "id")         m_sort_key = SortKey::Id;
+        else if (sb == "name")  m_sort_key = SortKey::Name;
+        else if (sb == "state") m_sort_key = SortKey::State;
+        else if (sb == "time")  m_sort_key = SortKey::Time;
+        else                    m_sort_key = SortKey::None;
+        m_sort_descending = m_config.job_view.sort_descending;
     }
 
     // [log_view]
@@ -767,10 +971,29 @@ Slurmon::build_rows(const std::vector<Job> &jobs)
         id_width = std::max(id_width, static_cast<int>(j.id().size()));
     id_width += kIdPadding;
 
-    rows.push_back(build_row(Job("ID", "NAME", "STATE", "USER", "TIME", "NODES",
-                                 "NODELIST/REASON"),
-                             false, id_width)
-                   | bold);
+    const char *arrow = m_sort_descending ? " ▼" : " ▲";
+    auto header_cell
+        = [&](const std::string &label, SortKey col, int w, bool flex_it)
+    {
+        std::string s = " " + label;
+        if (m_sort_key == col)
+            s += arrow;
+        auto el = text(s) | size(WIDTH, EQUAL, w) | bold;
+        if (m_sort_key == col)
+            el = el | underlined | color(ftxui::Color::Yellow);
+        if (flex_it)
+            el = el | flex;
+        return el;
+    };
+    rows.push_back(hbox({
+        header_cell("ID", SortKey::Id, id_width, false),
+        separator(),
+        header_cell("NAME", SortKey::Name, 24, true),
+        separator(),
+        header_cell("STATE", SortKey::State, 12, false),
+        separator(),
+        header_cell("TIME", SortKey::Time, 12, false),
+    }));
     rows.push_back(separator());
 
     for (size_t i = 0; i < jobs.size(); ++i)

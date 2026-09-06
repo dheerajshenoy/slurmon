@@ -17,6 +17,21 @@ public:
     ~Slurmon();
     void run();
 
+    enum class ViewMode
+    {
+        Live,
+        History,
+    };
+
+    enum class SortKey
+    {
+        None,
+        Id,
+        Name,
+        State,
+        Time,
+    };
+
 private:
     struct LogPaths
     {
@@ -30,11 +45,6 @@ private:
     void parse_args() noexcept;
     ftxui::Element build_row(const Job &job, bool selected, int id_width);
     ftxui::Elements build_rows(const std::vector<Job> &jobs);
-    enum class ViewMode
-    {
-        Live,
-        History,
-    };
 
     static std::vector<Job> fetch_jobs();
     static std::vector<Job> fetch_history_jobs();
@@ -53,6 +63,8 @@ private:
     std::atomic<bool> m_running = true;
 
     ViewMode m_view_mode      = ViewMode::Live;
+    SortKey m_sort_key        = SortKey::None;
+    bool m_sort_descending    = false;
     bool m_loop_after_end     = false;
     bool m_show_footer        = true;
     bool m_show_stderr        = false;

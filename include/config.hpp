@@ -1,5 +1,7 @@
 #pragma once
 
+#include <string>
+
 struct Config
 {
     struct JobView
@@ -8,6 +10,8 @@ struct Config
         bool loop_after_end
             = false; // Whether to loop the job list after reaching the end
         int refresh_interval = 5; // Seconds between squeue refreshes
+        std::string sort_by  = "none"; // none|id|name|state|time
+        bool sort_descending = false;
     } job_view;
 
     struct Footer
