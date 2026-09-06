@@ -23,76 +23,67 @@ load_config_field(const toml::table &parent, std::string_view section,
     }
 }
 
-// Check if a job matches the search query (case-insensitive)
+// Case-insensitive substring search, allocation-free.
+static bool
+icontains(const std::string &haystack, const std::string &needle_lower)
+{
+    if (needle_lower.empty())
+        return true;
+    if (haystack.size() < needle_lower.size())
+        return false;
+    const size_t stop = haystack.size() - needle_lower.size();
+    for (size_t i = 0; i <= stop; ++i)
+    {
+        size_t k = 0;
+        for (; k < needle_lower.size(); ++k)
+        {
+            char c = static_cast<char>(
+                std::tolower(static_cast<unsigned char>(haystack[i + k])));
+            if (c != needle_lower[k])
+                break;
+        }
+        if (k == needle_lower.size())
+            return true;
+    }
+    return false;
+}
+
 static bool
 matches_query(const Job &j, const std::string &q_lower)
 {
     if (q_lower.empty())
         return true;
-    auto lower = [](std::string s)
-    {
-        for (auto &c : s)
-            c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
-        return s;
-    };
-    auto contains = [&](const std::string &s)
-    {
-        return lower(s).find(q_lower) != std::string::npos;
-    };
-    return contains(j.id()) || contains(j.name()) || contains(j.state())
-           || contains(j.time());
+    return icontains(j.id(), q_lower) || icontains(j.name(), q_lower)
+           || icontains(j.state(), q_lower) || icontains(j.time(), q_lower);
 }
 
-// Filter jobs based on the search query (case-insensitive)
-static std::vector<Job>
+// Filter jobs by search query, returning borrowed pointers into `jobs`
+// (no Job copies).
+static std::vector<const Job *>
 filter_jobs(const std::vector<Job> &jobs, const std::string &query)
 {
+    std::vector<const Job *> out;
+    out.reserve(jobs.size());
     if (query.empty())
-        return jobs;
+    {
+        for (const auto &j : jobs)
+            out.push_back(&j);
+        return out;
+    }
     std::string q;
     q.reserve(query.size());
     for (char c : query)
         q.push_back(
             static_cast<char>(std::tolower(static_cast<unsigned char>(c))));
-    std::vector<Job> out;
-    out.reserve(jobs.size());
     for (const auto &j : jobs)
         if (matches_query(j, q))
-            out.push_back(j);
+            out.push_back(&j);
     return out;
 }
 
 // Forward-declared here; defined near cancel_job.
 static std::vector<std::string>
 expand_array_ids(const std::string &id);
-
-// Parse a numeric prefix from a string; used for id sorting so that "10"
-// sorts after "9" instead of lexicographically before it. Non-numeric ids
-// fall back to string compare.
-static bool
-numeric_less(const std::string &a, const std::string &b)
-{
-    auto num_prefix = [](const std::string &s, unsigned long long &n) -> bool
-    {
-        if (s.empty() || !std::isdigit(static_cast<unsigned char>(s[0])))
-            return false;
-        try
-        {
-            n = std::stoull(s);
-            return true;
-        }
-        catch (...)
-        {
-            return false;
-        }
-    };
-    unsigned long long na = 0, nb = 0;
-    bool ok_a = num_prefix(a, na);
-    bool ok_b = num_prefix(b, nb);
-    if (ok_a && ok_b && na != nb)
-        return na < nb;
-    return a < b;
-}
 
 // Convert SLURM elapsed strings ("D-HH:MM:SS", "HH:MM:SS", "MM:SS",
 // "SS", or "INVALID"/"UNLIMITED"/"NOT_SET") to seconds. Non-parseable
@@ -179,29 +170,65 @@ time_to_seconds(const std::string &s)
 }
 
 static void
-sort_jobs(std::vector<Job> &jobs, Slurmon::SortKey key, bool descending)
+sort_jobs(std::vector<const Job *> &jobs, Slurmon::SortKey key,
+          bool descending)
 {
-    if (key == Slurmon::SortKey::None)
+    if (key == Slurmon::SortKey::None || jobs.size() < 2)
         return;
-    auto cmp = [key](const Job &a, const Job &b)
+
+    // Precompute sort keys once (Schwartzian) — time parsing and
+    // numeric-prefix parsing are the expensive bits.
+    struct Keyed
     {
+        const Job *job;
+        long long num = 0;
+        const std::string *str = nullptr;
+    };
+    std::vector<Keyed> tagged;
+    tagged.reserve(jobs.size());
+    for (const Job *j : jobs)
+    {
+        Keyed k{j};
         switch (key)
         {
         case Slurmon::SortKey::Id:
-            return numeric_less(a.id(), b.id());
-        case Slurmon::SortKey::Name:
-            return a.name() < b.name();
-        case Slurmon::SortKey::State:
-            return a.state() < b.state();
-        case Slurmon::SortKey::Time:
-            return time_to_seconds(a.time()) < time_to_seconds(b.time());
-        default:
-            return false;
+        {
+            try
+            {
+                k.num = std::stoll(j->id());
+            }
+            catch (...)
+            {
+                k.num = -1;
+            }
+            k.str = &j->id();
+            break;
         }
+        case Slurmon::SortKey::Name:  k.str = &j->name();  break;
+        case Slurmon::SortKey::State: k.str = &j->state(); break;
+        case Slurmon::SortKey::Time:  k.num = time_to_seconds(j->time()); break;
+        default: break;
+        }
+        tagged.push_back(k);
+    }
+
+    auto cmp = [key](const Keyed &a, const Keyed &b)
+    {
+        if (key == Slurmon::SortKey::Id)
+        {
+            if (a.num >= 0 && b.num >= 0 && a.num != b.num)
+                return a.num < b.num;
+            return *a.str < *b.str;
+        }
+        if (key == Slurmon::SortKey::Time)
+            return a.num < b.num;
+        return *a.str < *b.str;
     };
-    std::stable_sort(jobs.begin(), jobs.end(),
-                     [&](const Job &a, const Job &b)
+    std::stable_sort(tagged.begin(), tagged.end(),
+                     [&](const Keyed &a, const Keyed &b)
                      { return descending ? cmp(b, a) : cmp(a, b); });
+    for (size_t i = 0; i < jobs.size(); ++i)
+        jobs[i] = tagged[i].job;
 }
 
 static const char *
@@ -320,16 +347,22 @@ Slurmon::init_ui() noexcept
     };
 
     auto view_of = [this](const std::vector<Job> &src)
+                       -> const std::vector<const Job *> &
     {
-        auto v = filter_jobs(src, m_search_query);
-        sort_jobs(v, m_sort_key, m_sort_descending);
-        return v;
+        if (m_view_dirty)
+        {
+            m_view_cache = filter_jobs(src, m_search_query);
+            sort_jobs(m_view_cache, m_sort_key, m_sort_descending);
+            m_view_dirty = false;
+        }
+        return m_view_cache;
     };
 
     {
         auto initial = fetch_current();
         std::lock_guard<std::mutex> lk(m_jobs_mutex);
-        m_jobs = std::move(initial);
+        m_jobs       = std::move(initial);
+        m_view_dirty = true;
     }
 
     std::thread ticker([&]
@@ -347,9 +380,9 @@ Slurmon::init_ui() noexcept
             auto fresh = fetch_current();
             {
                 std::lock_guard<std::mutex> lk(m_jobs_mutex);
-                m_jobs   = std::move(fresh);
-                auto vsz = static_cast<int>(
-                    view_of(m_jobs).size());
+                m_jobs       = std::move(fresh);
+                m_view_dirty = true;
+                auto vsz     = static_cast<int>(view_of(m_jobs).size());
                 if (m_selected_row >= vsz)
                     m_selected_row = vsz - 1;
                 if (m_selected_row < 0 && vsz > 0)
@@ -362,7 +395,7 @@ Slurmon::init_ui() noexcept
     auto left_renderer = Renderer([&]
     {
         std::lock_guard<std::mutex> lk(m_jobs_mutex);
-        auto view = view_of(m_jobs);
+        const auto &view = view_of(m_jobs);
         if (m_selected_row == -1 && !view.empty())
             m_selected_row = 0;
         if (m_selected_row >= static_cast<int>(view.size()))
@@ -384,14 +417,14 @@ Slurmon::init_ui() noexcept
     auto right_renderer = Renderer([&]
     {
         std::lock_guard<std::mutex> lk(m_jobs_mutex);
-        auto view = view_of(m_jobs);
+        const auto &view = view_of(m_jobs);
 
         Element details;
         if (m_selected_row >= 0
             && m_selected_row < static_cast<int>(view.size()))
         {
-            const auto &j = view[m_selected_row];
-            auto field    = [](const std::string &label, Element val)
+            const Job &j = *view[m_selected_row];
+            auto field   = [](const std::string &label, Element val)
             {
                 return hbox({
                     text(label) | bold | size(WIDTH, EQUAL, 10),
@@ -429,7 +462,7 @@ Slurmon::init_ui() noexcept
         if (m_selected_row >= 0
             && m_selected_row < static_cast<int>(view.size()))
         {
-            const auto &j     = view[m_selected_row];
+            const Job &j      = *view[m_selected_row];
             const auto &paths = log_paths_for(j.id());
             const std::string &path
                 = m_show_stderr ? paths.stderr_path : paths.stdout_path;
@@ -608,8 +641,8 @@ Slurmon::init_ui() noexcept
                 m_search_query = m_search_buffer;
                 m_search_mode  = false;
                 std::lock_guard<std::mutex> lk(m_jobs_mutex);
-                auto vsz = static_cast<int>(
-                    view_of(m_jobs).size());
+                m_view_dirty   = true;
+                auto vsz       = static_cast<int>(view_of(m_jobs).size());
                 m_selected_row = vsz > 0 ? 0 : -1;
                 return true;
             }
@@ -647,6 +680,7 @@ Slurmon::init_ui() noexcept
             auto fresh = fetch_current();
             std::lock_guard<std::mutex> lk(m_jobs_mutex);
             m_jobs         = std::move(fresh);
+            m_view_dirty   = true;
             m_selected_row = m_jobs.empty() ? -1 : 0;
             return true;
         }
@@ -655,6 +689,7 @@ Slurmon::init_ui() noexcept
         {
             m_search_query.clear();
             std::lock_guard<std::mutex> lk(m_jobs_mutex);
+            m_view_dirty   = true;
             m_selected_row = m_jobs.empty() ? -1 : 0;
             return true;
         }
@@ -682,9 +717,9 @@ Slurmon::init_ui() noexcept
                 {
                     auto fresh = fetch_jobs();
                     std::lock_guard<std::mutex> lk(m_jobs_mutex);
-                    m_jobs   = std::move(fresh);
-                    auto vsz = static_cast<int>(
-                        view_of(m_jobs).size());
+                    m_jobs       = std::move(fresh);
+                    m_view_dirty = true;
+                    auto vsz     = static_cast<int>(view_of(m_jobs).size());
                     if (m_selected_row >= vsz)
                         m_selected_row = vsz - 1;
                 }
@@ -704,11 +739,11 @@ Slurmon::init_ui() noexcept
         if (event == Event::Character('c') || event == Event::Character('C'))
         {
             std::lock_guard<std::mutex> lk(m_jobs_mutex);
-            auto view = view_of(m_jobs);
+            const auto &view = view_of(m_jobs);
             if (m_selected_row >= 0
                 && m_selected_row < static_cast<int>(view.size()))
             {
-                const auto &j = view[m_selected_row];
+                const Job &j = *view[m_selected_row];
                 if (event == Event::Character('C'))
                 {
                     auto us            = j.id().find('_');
@@ -820,6 +855,7 @@ Slurmon::init_ui() noexcept
             case SortKey::Time:  m_sort_key = SortKey::None;  break;
             }
             std::lock_guard<std::mutex> lk(m_jobs_mutex);
+            m_view_dirty   = true;
             auto vsz       = static_cast<int>(view_of(m_jobs).size());
             m_selected_row = vsz > 0 ? 0 : -1;
             return true;
@@ -829,6 +865,7 @@ Slurmon::init_ui() noexcept
         {
             m_sort_descending = !m_sort_descending;
             std::lock_guard<std::mutex> lk(m_jobs_mutex);
+            m_view_dirty   = true;
             auto vsz       = static_cast<int>(view_of(m_jobs).size());
             m_selected_row = vsz > 0 ? 0 : -1;
             return true;
@@ -1044,12 +1081,21 @@ resolve_columns(const std::vector<std::string> &names)
 
 // Build all rows for the job table
 ftxui::Elements
-Slurmon::build_rows(const std::vector<Job> &jobs)
+Slurmon::build_rows(const std::vector<const Job *> &jobs)
 {
     using namespace ftxui;
     Elements rows;
 
-    auto columns = resolve_columns(m_config.job_view.columns);
+    // Resolving columns walks the whole column table on every render; the
+    // set only changes when config is (re)loaded, so cache it.
+    static thread_local std::vector<std::string> cached_keys;
+    static thread_local std::vector<JobColumn> cached_columns;
+    if (cached_keys != m_config.job_view.columns)
+    {
+        cached_keys    = m_config.job_view.columns;
+        cached_columns = resolve_columns(cached_keys);
+    }
+    const auto &columns = cached_columns;
 
     // Compute per-column widths (auto-size for base_width == -1).
     constexpr int kAutoPadding = 2;
@@ -1062,8 +1108,8 @@ Slurmon::build_rows(const std::vector<Job> &jobs)
             continue;
         }
         int w = static_cast<int>(std::string(columns[i].label).size());
-        for (const auto &j : jobs)
-            w = std::max(w, static_cast<int>(j.get(columns[i].key).size()));
+        for (const Job *j : jobs)
+            w = std::max(w, static_cast<int>(j->get(columns[i].key).size()));
         widths[i] = w + kAutoPadding;
     }
 
@@ -1098,14 +1144,15 @@ Slurmon::build_rows(const std::vector<Job> &jobs)
     // Data rows.
     for (size_t r = 0; r < jobs.size(); ++r)
     {
-        const auto &j = jobs[r];
+        const Job &j = *jobs[r];
         Elements row_cells;
+        row_cells.reserve(columns.size() * 2);
         for (size_t i = 0; i < columns.size(); ++i)
         {
             if (i > 0)
                 row_cells.push_back(separator());
-            auto val = j.get(columns[i].key);
-            auto el  = cell(val, widths[i], columns[i].flex);
+            const std::string &val = j.get(columns[i].key);
+            auto el                = cell(val, widths[i], columns[i].flex);
             if (columns[i].colored)
                 el = el | state_color(j.state()) | bold;
             row_cells.push_back(el);

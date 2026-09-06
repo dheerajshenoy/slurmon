@@ -43,7 +43,7 @@ private:
     void init_ui() noexcept;
     void init_config() noexcept;
     void parse_args() noexcept;
-    ftxui::Elements build_rows(const std::vector<Job> &jobs);
+    ftxui::Elements build_rows(const std::vector<const Job *> &jobs);
 
     static std::vector<Job> fetch_jobs();
     static std::vector<Job> fetch_history_jobs();
@@ -58,6 +58,8 @@ private:
     int m_selected_row = -1;
     int m_split_size   = -1;
     std::vector<Job> m_jobs;
+    std::vector<const Job *> m_view_cache;
+    bool m_view_dirty = true;
     std::mutex m_jobs_mutex;
     std::atomic<bool> m_running = true;
 

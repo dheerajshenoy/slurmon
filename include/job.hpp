@@ -18,19 +18,24 @@ public:
         m_fields[key] = std::move(value);
     }
 
-    std::string get(const std::string &key) const
+    const std::string &get(const std::string &key) const
     {
         auto it = m_fields.find(key);
-        return it == m_fields.end() ? std::string() : it->second;
+        if (it == m_fields.end())
+        {
+            static const std::string empty;
+            return empty;
+        }
+        return it->second;
     }
 
-    std::string id() const                 { return get("id"); }
-    std::string name() const               { return get("name"); }
-    std::string state() const              { return get("state"); }
-    std::string user() const               { return get("user"); }
-    std::string time() const               { return get("time"); }
-    std::string nodes() const              { return get("nodes"); }
-    std::string nodelist_or_reason() const { return get("nodelist"); }
+    const std::string &id() const                 { return get("id"); }
+    const std::string &name() const               { return get("name"); }
+    const std::string &state() const              { return get("state"); }
+    const std::string &user() const               { return get("user"); }
+    const std::string &time() const               { return get("time"); }
+    const std::string &nodes() const              { return get("nodes"); }
+    const std::string &nodelist_or_reason() const { return get("nodelist"); }
 
 private:
     std::unordered_map<std::string, std::string> m_fields;
