@@ -14,6 +14,8 @@ SLURM monitoring utility
 - [x] Configuration
 - [x] Search jobs
 - [x] Cancel job with confirmation
-- [ ] Historical job info using `sacct`
-- [ ] Quick resubmit / clone job
+- [x] Historical job info using `sacct`
 - [x] Array job expand/collapse view
+- [ ] More colors
+- [ ] Quick resubmit / clone job
+- [x] Sort jobs
