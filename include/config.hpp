@@ -1,6 +1,7 @@
 #pragma once
 
 #include <string>
+#include <vector>
 
 struct Config
 {
@@ -12,6 +13,9 @@ struct Config
         int refresh_interval = 5; // Seconds between squeue refreshes
         std::string sort_by  = "none"; // none|id|name|state|time
         bool sort_descending = false;
+        // Columns to display, in order. Recognised keys:
+        // id, name, state, user, time, nodes, nodelist
+        std::vector<std::string> columns = {"id", "name", "state", "time"};
     } job_view;
 
     struct Footer

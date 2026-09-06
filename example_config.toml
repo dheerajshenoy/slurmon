@@ -10,6 +10,16 @@ refresh_interval = 5   # seconds between squeue refreshes
 sort_by = "none"       # none | id | name | state | time
 sort_descending = false
 
+# Columns shown in the job list, in order. Available keys:
+#   id, name, state, state_compact, user, uid, group, gid, account,
+#   partition, qos, priority, nice, time, time_limit, time_left,
+#   submit_time, start_time, end_time, nodes, nodelist, reason,
+#   min_cpus, cpus, min_memory, tres, features, dependency,
+#   reservation, wckey, licenses, command, workdir, exec_host,
+#   array_id, array_task, sockets, cores, threads, sct, comment,
+#   exit_code (history only)
+columns = ["id", "name", "state", "time"]
+
 [log_view]
 show = true
 error_first = false    # show stderr first instead of stdout

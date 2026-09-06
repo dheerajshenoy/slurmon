@@ -893,6 +893,15 @@ Slurmon::init_config() noexcept
             m_config.job_view.refresh_interval = static_cast<int>(tmp);
     }
 
+    if (auto arr = toml["job_view"]["columns"].as_array())
+    {
+        std::vector<std::string> cols;
+        for (auto &&v : *arr)
+            if (auto s = v.value<std::string>())
+                cols.push_back(*s);
+        if (!cols.empty())
+            m_config.job_view.columns = std::move(cols);
+    }
     load_config_field(toml, "job_view", "sort_by", m_config.job_view.sort_by);
     load_config_field(toml, "job_view", "sort_descending",
                       m_config.job_view.sort_descending);
@@ -931,31 +940,106 @@ Slurmon::init_config() noexcept
                       m_config.detail_view.show_nodelist);
 }
 
-// Build a single row for the job table
-ftxui::Element
-Slurmon::build_row(const Job &job, bool selected, int id_width)
+// Column definitions for the job list. `width` == -1 means the column
+// auto-sizes to fit its content; `flex` marks the column that gets any
+// remaining horizontal space.
+// Column definitions for the job list. Each column carries the squeue
+// format specifier and sacct field name used to fetch it (nullptr when
+// the source doesn't expose an equivalent). `base_width` == -1 means the
+// column auto-sizes to its widest value; `flex` marks the column that
+// consumes any remaining horizontal space.
+struct JobColumn
 {
-    using namespace ftxui;
+    const char *key;
+    const char *label;
+    int base_width;
+    bool flex;
+    Slurmon::SortKey sort;
+    bool colored;
+    const char *squeue_fmt;
+    const char *sacct_fmt;
+};
 
-    auto cell = [](const std::string &s, int w)
-    {
-        return text(" " + s) | size(WIDTH, EQUAL, w);
+static const std::vector<JobColumn> &
+all_job_columns()
+{
+    // clang-format off
+    static const std::vector<JobColumn> cols = {
+        // key             label              W   flex   sort                    color  squeue    sacct
+        {"id",             "ID",              -1, false, Slurmon::SortKey::Id,    false, "%i",     "JobID"},
+        {"name",           "NAME",            24, true,  Slurmon::SortKey::Name,  false, "%j",     "JobName"},
+        {"state",          "STATE",           12, false, Slurmon::SortKey::State, true,  "%T",     "State"},
+        {"state_compact",  "ST",               3, false, Slurmon::SortKey::None,  true,  "%t",     nullptr},
+        {"user",           "USER",            10, false, Slurmon::SortKey::None,  false, "%u",     "User"},
+        {"uid",            "UID",              8, false, Slurmon::SortKey::None,  false, "%U",     "UID"},
+        {"group",          "GROUP",           10, false, Slurmon::SortKey::None,  false, "%g",     "Group"},
+        {"gid",            "GID",              8, false, Slurmon::SortKey::None,  false, "%G",     "GID"},
+        {"account",        "ACCOUNT",         12, false, Slurmon::SortKey::None,  false, "%a",     "Account"},
+        {"partition",      "PARTITION",       12, false, Slurmon::SortKey::None,  false, "%P",     "Partition"},
+        {"qos",            "QOS",             10, false, Slurmon::SortKey::None,  false, "%q",     "QOS"},
+        {"priority",       "PRIORITY",        10, false, Slurmon::SortKey::None,  false, "%Q",     "Priority"},
+        {"nice",           "NICE",             6, false, Slurmon::SortKey::None,  false, "%y",     nullptr},
+        {"time",           "TIME",            12, false, Slurmon::SortKey::Time,  false, "%M",     "Elapsed"},
+        {"time_limit",     "TIME_LIMIT",      12, false, Slurmon::SortKey::None,  false, "%l",     "Timelimit"},
+        {"time_left",      "TIME_LEFT",       12, false, Slurmon::SortKey::None,  false, "%L",     nullptr},
+        {"submit_time",    "SUBMIT_TIME",     20, false, Slurmon::SortKey::None,  false, "%V",     "Submit"},
+        {"start_time",     "START_TIME",      20, false, Slurmon::SortKey::None,  false, "%S",     "Start"},
+        {"end_time",       "END_TIME",        20, false, Slurmon::SortKey::None,  false, "%e",     "End"},
+        {"nodes",          "NODES",            6, false, Slurmon::SortKey::None,  false, "%D",     "NNodes"},
+        {"nodelist",       "NODELIST/REASON", -1, true,  Slurmon::SortKey::None,  false, "%R",     "NodeList"},
+        {"reason",         "REASON",          20, true,  Slurmon::SortKey::None,  false, "%r",     nullptr},
+        {"min_cpus",       "MIN_CPUS",         8, false, Slurmon::SortKey::None,  false, "%c",     "ReqCPUS"},
+        {"cpus",           "CPUS",             6, false, Slurmon::SortKey::None,  false, "%C",     "AllocCPUS"},
+        {"min_memory",     "MIN_MEMORY",      12, false, Slurmon::SortKey::None,  false, "%m",     "ReqMem"},
+        {"tres",           "TRES",            25, true,  Slurmon::SortKey::None,  false, "%b",     "ReqTRES"},
+        {"features",       "FEATURES",        15, false, Slurmon::SortKey::None,  false, "%f",     nullptr},
+        {"dependency",     "DEPENDENCY",      15, false, Slurmon::SortKey::None,  false, "%E",     nullptr},
+        {"reservation",    "RESERVATION",     15, false, Slurmon::SortKey::None,  false, "%v",     "Reservation"},
+        {"wckey",          "WCKEY",           10, false, Slurmon::SortKey::None,  false, "%w",     "Wckey"},
+        {"licenses",       "LICENSES",        15, false, Slurmon::SortKey::None,  false, "%W",     nullptr},
+        {"command",        "COMMAND",         30, true,  Slurmon::SortKey::None,  false, "%o",     nullptr},
+        {"workdir",        "WORKDIR",         30, true,  Slurmon::SortKey::None,  false, "%Z",     "WorkDir"},
+        {"exec_host",      "EXEC_HOST",       15, false, Slurmon::SortKey::None,  false, "%B",     nullptr},
+        {"array_id",       "ARRAY_ID",        12, false, Slurmon::SortKey::None,  false, "%F",     nullptr},
+        {"array_task",     "ARRAY_TASK",      10, false, Slurmon::SortKey::None,  false, "%K",     nullptr},
+        {"sockets",        "SOCKETS",          7, false, Slurmon::SortKey::None,  false, "%H",     nullptr},
+        {"cores",          "CORES",            5, false, Slurmon::SortKey::None,  false, "%I",     nullptr},
+        {"threads",        "THREADS",          7, false, Slurmon::SortKey::None,  false, "%J",     nullptr},
+        {"sct",            "S:C:T",            7, false, Slurmon::SortKey::None,  false, "%z",     nullptr},
+        {"comment",        "COMMENT",         20, true,  Slurmon::SortKey::None,  false, "%k",     "Comment"},
+        {"exit_code",      "EXIT_CODE",        9, false, Slurmon::SortKey::None,  false, nullptr,  "ExitCode"},
     };
+    // clang-format on
+    return cols;
+}
 
-    auto row = hbox({
-        cell(job.id(), id_width),
-        separator(),
-        cell(job.name(), 24) | flex,
-        separator(),
-        cell(job.state(), 12) | state_color(job.state()) | bold,
-        separator(),
-        cell(job.time(), 12),
-    });
-
-    if (selected)
-        row = row | inverted;
-
-    return row;
+// Resolve the configured column names into a display list, silently
+// dropping any unknown keys. Falls back to the default set if the user
+// left the array empty.
+static std::vector<JobColumn>
+resolve_columns(const std::vector<std::string> &names)
+{
+    const auto &all = all_job_columns();
+    std::vector<JobColumn> out;
+    for (const auto &n : names)
+    {
+        for (const auto &c : all)
+        {
+            if (n == c.key)
+            {
+                out.push_back(c);
+                break;
+            }
+        }
+    }
+    if (out.empty())
+    {
+        for (const auto &n : {"id", "name", "state", "time"})
+            for (const auto &c : all)
+                if (std::string(c.key) == n)
+                    out.push_back(c);
+    }
+    return out;
 }
 
 // Build all rows for the job table
@@ -965,138 +1049,189 @@ Slurmon::build_rows(const std::vector<Job> &jobs)
     using namespace ftxui;
     Elements rows;
 
-    constexpr int kIdPadding = 2;
-    int id_width             = static_cast<int>(std::string("ID").size());
-    for (const auto &j : jobs)
-        id_width = std::max(id_width, static_cast<int>(j.id().size()));
-    id_width += kIdPadding;
+    auto columns = resolve_columns(m_config.job_view.columns);
 
-    const char *arrow = m_sort_descending ? " ▼" : " ▲";
-    auto header_cell
-        = [&](const std::string &label, SortKey col, int w, bool flex_it)
+    // Compute per-column widths (auto-size for base_width == -1).
+    constexpr int kAutoPadding = 2;
+    std::vector<int> widths(columns.size());
+    for (size_t i = 0; i < columns.size(); ++i)
     {
-        std::string s = " " + label;
-        if (m_sort_key == col)
-            s += arrow;
-        auto el = text(s) | size(WIDTH, EQUAL, w) | bold;
-        if (m_sort_key == col)
-            el = el | underlined | color(ftxui::Color::Yellow);
+        if (columns[i].base_width >= 0)
+        {
+            widths[i] = columns[i].base_width;
+            continue;
+        }
+        int w = static_cast<int>(std::string(columns[i].label).size());
+        for (const auto &j : jobs)
+            w = std::max(w, static_cast<int>(j.get(columns[i].key).size()));
+        widths[i] = w + kAutoPadding;
+    }
+
+    auto cell = [](const std::string &s, int w, bool flex_it)
+    {
+        auto el = text(" " + s) | size(WIDTH, EQUAL, w);
         if (flex_it)
             el = el | flex;
         return el;
     };
-    rows.push_back(hbox({
-        header_cell("ID", SortKey::Id, id_width, false),
-        separator(),
-        header_cell("NAME", SortKey::Name, 24, true),
-        separator(),
-        header_cell("STATE", SortKey::State, 12, false),
-        separator(),
-        header_cell("TIME", SortKey::Time, 12, false),
-    }));
+
+    // Header row with sort indicator on the active column.
+    const char *arrow = m_sort_descending ? " ▼" : " ▲";
+    Elements header;
+    for (size_t i = 0; i < columns.size(); ++i)
+    {
+        if (i > 0)
+            header.push_back(separator());
+        std::string s = " " + std::string(columns[i].label);
+        if (m_sort_key != SortKey::None && m_sort_key == columns[i].sort)
+            s += arrow;
+        auto el = text(s) | size(WIDTH, EQUAL, widths[i]) | bold;
+        if (m_sort_key != SortKey::None && m_sort_key == columns[i].sort)
+            el = el | underlined | color(Color::Yellow);
+        if (columns[i].flex)
+            el = el | flex;
+        header.push_back(el);
+    }
+    rows.push_back(hbox(std::move(header)));
     rows.push_back(separator());
 
-    for (size_t i = 0; i < jobs.size(); ++i)
+    // Data rows.
+    for (size_t r = 0; r < jobs.size(); ++r)
     {
-        rows.push_back(
-            build_row(jobs.at(i), (int)i == m_selected_row, id_width));
+        const auto &j = jobs[r];
+        Elements row_cells;
+        for (size_t i = 0; i < columns.size(); ++i)
+        {
+            if (i > 0)
+                row_cells.push_back(separator());
+            auto val = j.get(columns[i].key);
+            auto el  = cell(val, widths[i], columns[i].flex);
+            if (columns[i].colored)
+                el = el | state_color(j.state()) | bold;
+            row_cells.push_back(el);
+        }
+        auto row = hbox(std::move(row_cells));
+        if (static_cast<int>(r) == m_selected_row)
+            row = row | inverted;
+        rows.push_back(row);
     }
 
     return rows;
 }
 
-// Fetch jobs from the Slurm scheduler using the squeue command
+// Slurp all of a popen pipe's output into a string.
+static std::string
+slurp_pipe(FILE *fp)
+{
+    std::string out;
+    std::array<char, 1024> buf;
+    while (std::fgets(buf.data(), buf.size(), fp) != nullptr)
+        out += buf.data();
+    return out;
+}
+
+// Parse a pipe-delimited line into `keys` fields in order, assigning
+// each token to the matching column key on the job. Missing trailing
+// fields become empty strings.
+static Job
+parse_row(const std::string &line, const std::vector<const char *> &keys)
+{
+    Job j;
+    size_t pos = 0;
+    for (size_t i = 0; i < keys.size(); ++i)
+    {
+        auto next = line.find('|', pos);
+        if (next == std::string::npos)
+        {
+            j.set(keys[i], line.substr(pos));
+            for (size_t k = i + 1; k < keys.size(); ++k)
+                j.set(keys[k], "");
+            return j;
+        }
+        j.set(keys[i], line.substr(pos, next - pos));
+        pos = next + 1;
+    }
+    return j;
+}
+
+// Fetch live jobs from the Slurm scheduler using squeue. Every column
+// with a squeue format specifier is requested; the UI decides which to
+// display.
 std::vector<Job>
 Slurmon::fetch_jobs()
 {
     std::vector<Job> jobs;
 
-    std::array<char, 128> buffer;
-    std::string output;
+    std::string fmt;
+    std::vector<const char *> keys;
+    for (const auto &c : all_job_columns())
+    {
+        if (!c.squeue_fmt)
+            continue;
+        if (!fmt.empty())
+            fmt += "|";
+        fmt += c.squeue_fmt;
+        keys.push_back(c.key);
+    }
 
-    std::unique_ptr<FILE, decltype(&pclose)> pipe(
-        popen("squeue --noheader -o \"%i|%j|%T|%u|%M|%D|%R\"", "r"), pclose);
+    std::string cmd = "squeue --noheader -o \"" + fmt + "\" 2>/dev/null";
+    std::unique_ptr<FILE, decltype(&pclose)> pipe(popen(cmd.c_str(), "r"),
+                                                  pclose);
     if (!pipe)
-    {
-        std::cerr << "Failed to run squeue command" << std::endl;
         return jobs;
-    }
 
-    while (std::fgets(buffer.data(), buffer.size(), pipe.get()) != nullptr)
-    {
-        output += buffer.data();
-    }
-
-    int exit_code = pclose(pipe.release());
-    if (exit_code != 0)
-    {
-        std::cerr << "squeue command failed with exit code: " << exit_code
-                  << std::endl;
+    std::string output = slurp_pipe(pipe.get());
+    if (pclose(pipe.release()) != 0)
         return jobs;
-    }
 
     std::istringstream stream(output);
     std::string line;
-
     while (std::getline(stream, line))
     {
-        std::istringstream line_stream(line);
-        std::string id, name, state, user, time, nodes, nodelist_or_reason;
-
-        if (std::getline(line_stream, id, '|')
-            && std::getline(line_stream, name, '|')
-            && std::getline(line_stream, state, '|')
-            && std::getline(line_stream, user, '|')
-            && std::getline(line_stream, time, '|')
-            && std::getline(line_stream, nodes, '|')
-            && std::getline(line_stream, nodelist_or_reason))
-        {
-            jobs.emplace_back(id, name, state, user, time, nodes,
-                              nodelist_or_reason);
-        }
+        if (line.empty())
+            continue;
+        jobs.push_back(parse_row(line, keys));
     }
-
     return jobs;
 }
 
-// Fetch historical jobs from the SLURM accounting database using sacct.
-// Shows jobs completed since 00:00 today (sacct's default window).
+// Fetch historical jobs via sacct. Requests every column that has a
+// sacct field name; columns without a sacct equivalent stay empty.
 std::vector<Job>
 Slurmon::fetch_history_jobs()
 {
     std::vector<Job> jobs;
 
-    std::unique_ptr<FILE, decltype(&pclose)> pipe(
-        popen("sacct --noheader -X -P "
-              "-o JobID,JobName,State,User,Elapsed,NNodes,NodeList "
-              "2>/dev/null",
-              "r"),
-        pclose);
+    std::string fields;
+    std::vector<const char *> keys;
+    for (const auto &c : all_job_columns())
+    {
+        if (!c.sacct_fmt)
+            continue;
+        if (!fields.empty())
+            fields += ",";
+        fields += c.sacct_fmt;
+        keys.push_back(c.key);
+    }
+
+    std::string cmd
+        = "sacct --noheader -X -P -o " + fields + " 2>/dev/null";
+    std::unique_ptr<FILE, decltype(&pclose)> pipe(popen(cmd.c_str(), "r"),
+                                                  pclose);
     if (!pipe)
         return jobs;
 
-    std::array<char, 512> buffer;
-    std::string output;
-    while (std::fgets(buffer.data(), buffer.size(), pipe.get()) != nullptr)
-        output += buffer.data();
-
-    int exit_code = pclose(pipe.release());
-    if (exit_code != 0)
+    std::string output = slurp_pipe(pipe.get());
+    if (pclose(pipe.release()) != 0)
         return jobs;
 
     std::istringstream stream(output);
     std::string line;
     while (std::getline(stream, line))
     {
-        std::istringstream ls(line);
-        std::string id, name, state, user, time, nodes, nodelist;
-        if (std::getline(ls, id, '|') && std::getline(ls, name, '|')
-            && std::getline(ls, state, '|') && std::getline(ls, user, '|')
-            && std::getline(ls, time, '|') && std::getline(ls, nodes, '|')
-            && std::getline(ls, nodelist))
-        {
-            jobs.emplace_back(id, name, state, user, time, nodes, nodelist);
-        }
+        if (line.empty())
+            continue;
+        jobs.push_back(parse_row(line, keys));
     }
     return jobs;
 }

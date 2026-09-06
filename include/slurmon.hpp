@@ -43,7 +43,6 @@ private:
     void init_ui() noexcept;
     void init_config() noexcept;
     void parse_args() noexcept;
-    ftxui::Element build_row(const Job &job, bool selected, int id_width);
     ftxui::Elements build_rows(const std::vector<Job> &jobs);
 
     static std::vector<Job> fetch_jobs();
