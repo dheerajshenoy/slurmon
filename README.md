@@ -9,6 +9,10 @@ SLURM monitoring utility
 - View job details
 - View job logs (stdout and stderr)
 
+# Screenshot
+
+![Screenshot](./images/screenshot.png)
+
 # TODO
 
 - [x] Configuration
