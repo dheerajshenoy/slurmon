@@ -615,6 +615,10 @@ Slurmon::init_ui() noexcept
         std::string title = m_view_mode == ViewMode::History
                                 ? " Jobs (history) "
                                 : " Jobs ";
+        title += "(" + std::to_string(view.size());
+        if (view.size() != m_jobs.size())
+            title += "/" + std::to_string(m_jobs.size());
+        title += ") ";
         if (m_sort_key != SortKey::None)
         {
             title += "[sort: ";
