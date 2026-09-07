@@ -50,6 +50,13 @@ Extra arguments prepended to the
 .B scancel
 invocation before the job id (e.g.
 .BR \-\-signal=TERM ).
+.TP
+.BR \-r ", " \-\-refresh\-interval " " \fISECONDS\fR
+Seconds between
+.B squeue
+refreshes (integer, minimum 1). Overrides
+.B job_view.refresh_interval
+from the config file.
 .SH KEY BINDINGS
 .TP
 .B j / k

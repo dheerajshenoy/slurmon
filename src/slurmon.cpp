@@ -523,6 +523,12 @@ Slurmon::init_args() noexcept
         .nargs(1)
         .help("Extra arguments appended to the scancel command "
               "(e.g. --scancel-args=\"--signal=TERM\")");
+
+    m_argparse.add_argument("-r", "--refresh-interval")
+        .nargs(1)
+        .scan<'i', int>()
+        .help("Seconds between squeue refreshes (>= 1). "
+              "Overrides job_view.refresh_interval from the config file.");
 }
 
 // Parse command-line arguments
@@ -546,6 +552,9 @@ Slurmon::parse_args() noexcept
         m_sacct_args = m_argparse.get<std::string>("--sacct-args");
     if (m_argparse.is_used("--scancel-args"))
         m_scancel_args = m_argparse.get<std::string>("--scancel-args");
+    if (m_argparse.is_used("--refresh-interval"))
+        m_refresh_interval_cli
+            = std::max(1, m_argparse.get<int>("--refresh-interval"));
 }
 
 // Initialize the user interface using FTXUI
@@ -1241,6 +1250,10 @@ Slurmon::init_config() noexcept
         if (!cols.empty())
             m_config.detail_view.columns = std::move(cols);
     }
+
+    // CLI overrides win over the config file.
+    if (m_refresh_interval_cli > 0)
+        m_config.job_view.refresh_interval = m_refresh_interval_cli;
 }
 
 // Build all rows for the job table
