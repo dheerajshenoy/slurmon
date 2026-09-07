@@ -244,6 +244,104 @@ sort_key_label(Slurmon::SortKey k)
     }
 }
 
+// Column definitions for the job list. Each column carries the squeue
+// format specifier and sacct field name used to fetch it (nullptr when
+// the source doesn't expose an equivalent). `base_width` == -1 means the
+// column auto-sizes to its widest value; `flex` marks the column that
+// consumes any remaining horizontal space.
+struct JobColumn
+{
+    const char *key;
+    const char *label;
+    int base_width;
+    bool flex;
+    Slurmon::SortKey sort;
+    bool colored;
+    const char *squeue_fmt;
+    const char *sacct_fmt;
+};
+
+static const std::vector<JobColumn> &
+all_job_columns()
+{
+    // clang-format off
+    static const std::vector<JobColumn> cols = {
+        {"id",             "ID",              -1, false, Slurmon::SortKey::Id,    false, "%i",     "JobID"},
+        {"name",           "NAME",            24, true,  Slurmon::SortKey::Name,  false, "%j",     "JobName"},
+        {"state",          "STATE",           12, false, Slurmon::SortKey::State, true,  "%T",     "State"},
+        {"state_compact",  "ST",               3, false, Slurmon::SortKey::None,  true,  "%t",     nullptr},
+        {"user",           "USER",            10, false, Slurmon::SortKey::None,  false, "%u",     "User"},
+        {"uid",            "UID",              8, false, Slurmon::SortKey::None,  false, "%U",     "UID"},
+        {"group",          "GROUP",           10, false, Slurmon::SortKey::None,  false, "%g",     "Group"},
+        {"gid",            "GID",              8, false, Slurmon::SortKey::None,  false, "%G",     "GID"},
+        {"account",        "ACCOUNT",         12, false, Slurmon::SortKey::None,  false, "%a",     "Account"},
+        {"partition",      "PARTITION",       12, false, Slurmon::SortKey::None,  false, "%P",     "Partition"},
+        {"qos",            "QOS",             10, false, Slurmon::SortKey::None,  false, "%q",     "QOS"},
+        {"priority",       "PRIORITY",        10, false, Slurmon::SortKey::None,  false, "%Q",     "Priority"},
+        {"nice",           "NICE",             6, false, Slurmon::SortKey::None,  false, "%y",     nullptr},
+        {"time",           "TIME",            12, false, Slurmon::SortKey::Time,  false, "%M",     "Elapsed"},
+        {"time_limit",     "TIME_LIMIT",      12, false, Slurmon::SortKey::None,  false, "%l",     "Timelimit"},
+        {"time_left",      "TIME_LEFT",       12, false, Slurmon::SortKey::None,  false, "%L",     nullptr},
+        {"submit_time",    "SUBMIT_TIME",     20, false, Slurmon::SortKey::None,  false, "%V",     "Submit"},
+        {"start_time",     "START_TIME",      20, false, Slurmon::SortKey::None,  false, "%S",     "Start"},
+        {"end_time",       "END_TIME",        20, false, Slurmon::SortKey::None,  false, "%e",     "End"},
+        {"nodes",          "NODES",            6, false, Slurmon::SortKey::None,  false, "%D",     "NNodes"},
+        {"nodelist",       "NODELIST/REASON", -1, true,  Slurmon::SortKey::None,  false, "%R",     "NodeList"},
+        {"reason",         "REASON",          20, true,  Slurmon::SortKey::None,  false, "%r",     nullptr},
+        {"min_cpus",       "MIN_CPUS",         8, false, Slurmon::SortKey::None,  false, "%c",     "ReqCPUS"},
+        {"cpus",           "CPUS",             6, false, Slurmon::SortKey::None,  false, "%C",     "AllocCPUS"},
+        {"min_memory",     "MIN_MEMORY",      12, false, Slurmon::SortKey::None,  false, "%m",     "ReqMem"},
+        {"tres",           "TRES",            25, true,  Slurmon::SortKey::None,  false, "%b",     "ReqTRES"},
+        {"features",       "FEATURES",        15, false, Slurmon::SortKey::None,  false, "%f",     nullptr},
+        {"dependency",     "DEPENDENCY",      15, false, Slurmon::SortKey::None,  false, "%E",     nullptr},
+        {"reservation",    "RESERVATION",     15, false, Slurmon::SortKey::None,  false, "%v",     "Reservation"},
+        {"wckey",          "WCKEY",           10, false, Slurmon::SortKey::None,  false, "%w",     "Wckey"},
+        {"licenses",       "LICENSES",        15, false, Slurmon::SortKey::None,  false, "%W",     nullptr},
+        {"command",        "COMMAND",         30, true,  Slurmon::SortKey::None,  false, "%o",     nullptr},
+        {"workdir",        "WORKDIR",         30, true,  Slurmon::SortKey::None,  false, "%Z",     "WorkDir"},
+        {"exec_host",      "EXEC_HOST",       15, false, Slurmon::SortKey::None,  false, "%B",     nullptr},
+        {"array_id",       "ARRAY_ID",        12, false, Slurmon::SortKey::None,  false, "%F",     nullptr},
+        {"array_task",     "ARRAY_TASK",      10, false, Slurmon::SortKey::None,  false, "%K",     nullptr},
+        {"sockets",        "SOCKETS",          7, false, Slurmon::SortKey::None,  false, "%H",     nullptr},
+        {"cores",          "CORES",            5, false, Slurmon::SortKey::None,  false, "%I",     nullptr},
+        {"threads",        "THREADS",          7, false, Slurmon::SortKey::None,  false, "%J",     nullptr},
+        {"sct",            "S:C:T",            7, false, Slurmon::SortKey::None,  false, "%z",     nullptr},
+        {"comment",        "COMMENT",         20, true,  Slurmon::SortKey::None,  false, "%k",     "Comment"},
+        {"exit_code",      "EXIT_CODE",        9, false, Slurmon::SortKey::None,  false, nullptr,  "ExitCode"},
+    };
+    // clang-format on
+    return cols;
+}
+
+// Resolve the configured column names into a display list, silently
+// dropping any unknown keys. Falls back to the default set if the user
+// left the array empty.
+static std::vector<JobColumn>
+resolve_columns(const std::vector<std::string> &names)
+{
+    const auto &all = all_job_columns();
+    std::vector<JobColumn> out;
+    for (const auto &n : names)
+    {
+        for (const auto &c : all)
+        {
+            if (n == c.key)
+            {
+                out.push_back(c);
+                break;
+            }
+        }
+    }
+    if (out.empty())
+    {
+        for (const auto &n : {"id", "name", "state", "time"})
+            for (const auto &c : all)
+                if (std::string(c.key) == n)
+                    out.push_back(c);
+    }
+    return out;
+}
+
 // Return a color decorator based on the job state
 static ftxui::Decorator
 state_color(const std::string &state)
@@ -458,23 +556,21 @@ Slurmon::init_ui() noexcept
                 });
             };
             Elements rows;
-            if (m_config.detail_view.show_id)
-                rows.push_back(field("ID:", text(j.id())));
-            if (m_config.detail_view.show_name)
-                rows.push_back(field("Name:", text(j.name())));
-            if (m_config.detail_view.show_state)
-                rows.push_back(field(
-                    "State:",
-                    text(j.state()) | state_color(j.state()) | bold));
-            if (m_config.detail_view.show_user)
-                rows.push_back(field("User:", text(j.user())));
-            if (m_config.detail_view.show_time)
-                rows.push_back(field("Time:", text(j.time())));
-            if (m_config.detail_view.show_nodes)
-                rows.push_back(field("Nodes:", text(j.nodes())));
-            if (m_config.detail_view.show_nodelist)
-                rows.push_back(
-                    field("Nodelist:", text(j.nodelist_or_reason())));
+            const auto &all = all_job_columns();
+            for (const auto &key : m_config.detail_view.columns)
+            {
+                auto it = std::find_if(
+                    all.begin(), all.end(),
+                    [&](const JobColumn &c) { return c.key == key; });
+                if (it == all.end())
+                    continue;
+                const std::string &val = j.get(key);
+                Element value_el       = text(val);
+                if (it->colored && key == "state")
+                    value_el = text(val) | state_color(val) | bold;
+                std::string label = std::string(it->label) + ":";
+                rows.push_back(field(label, std::move(value_el)));
+            }
             details = rows.empty() ? filler() : vbox(std::move(rows));
         }
         else
@@ -1016,122 +1112,15 @@ Slurmon::init_config() noexcept
     // [detail_view]
     load_config_field(toml, "detail_view", "show",
                       m_config.detail_view.show);
-    load_config_field(toml, "detail_view", "show_id",
-                      m_config.detail_view.show_id);
-    load_config_field(toml, "detail_view", "show_name",
-                      m_config.detail_view.show_name);
-    load_config_field(toml, "detail_view", "show_state",
-                      m_config.detail_view.show_state);
-    load_config_field(toml, "detail_view", "show_user",
-                      m_config.detail_view.show_user);
-    load_config_field(toml, "detail_view", "show_time",
-                      m_config.detail_view.show_time);
-    load_config_field(toml, "detail_view", "show_nodes",
-                      m_config.detail_view.show_nodes);
-    load_config_field(toml, "detail_view", "show_nodelist",
-                      m_config.detail_view.show_nodelist);
-}
-
-// Column definitions for the job list. `width` == -1 means the column
-// auto-sizes to fit its content; `flex` marks the column that gets any
-// remaining horizontal space.
-// Column definitions for the job list. Each column carries the squeue
-// format specifier and sacct field name used to fetch it (nullptr when
-// the source doesn't expose an equivalent). `base_width` == -1 means the
-// column auto-sizes to its widest value; `flex` marks the column that
-// consumes any remaining horizontal space.
-struct JobColumn
-{
-    const char *key;
-    const char *label;
-    int base_width;
-    bool flex;
-    Slurmon::SortKey sort;
-    bool colored;
-    const char *squeue_fmt;
-    const char *sacct_fmt;
-};
-
-static const std::vector<JobColumn> &
-all_job_columns()
-{
-    // clang-format off
-    static const std::vector<JobColumn> cols = {
-        // key             label              W   flex   sort                    color  squeue    sacct
-        {"id",             "ID",              -1, false, Slurmon::SortKey::Id,    false, "%i",     "JobID"},
-        {"name",           "NAME",            24, true,  Slurmon::SortKey::Name,  false, "%j",     "JobName"},
-        {"state",          "STATE",           12, false, Slurmon::SortKey::State, true,  "%T",     "State"},
-        {"state_compact",  "ST",               3, false, Slurmon::SortKey::None,  true,  "%t",     nullptr},
-        {"user",           "USER",            10, false, Slurmon::SortKey::None,  false, "%u",     "User"},
-        {"uid",            "UID",              8, false, Slurmon::SortKey::None,  false, "%U",     "UID"},
-        {"group",          "GROUP",           10, false, Slurmon::SortKey::None,  false, "%g",     "Group"},
-        {"gid",            "GID",              8, false, Slurmon::SortKey::None,  false, "%G",     "GID"},
-        {"account",        "ACCOUNT",         12, false, Slurmon::SortKey::None,  false, "%a",     "Account"},
-        {"partition",      "PARTITION",       12, false, Slurmon::SortKey::None,  false, "%P",     "Partition"},
-        {"qos",            "QOS",             10, false, Slurmon::SortKey::None,  false, "%q",     "QOS"},
-        {"priority",       "PRIORITY",        10, false, Slurmon::SortKey::None,  false, "%Q",     "Priority"},
-        {"nice",           "NICE",             6, false, Slurmon::SortKey::None,  false, "%y",     nullptr},
-        {"time",           "TIME",            12, false, Slurmon::SortKey::Time,  false, "%M",     "Elapsed"},
-        {"time_limit",     "TIME_LIMIT",      12, false, Slurmon::SortKey::None,  false, "%l",     "Timelimit"},
-        {"time_left",      "TIME_LEFT",       12, false, Slurmon::SortKey::None,  false, "%L",     nullptr},
-        {"submit_time",    "SUBMIT_TIME",     20, false, Slurmon::SortKey::None,  false, "%V",     "Submit"},
-        {"start_time",     "START_TIME",      20, false, Slurmon::SortKey::None,  false, "%S",     "Start"},
-        {"end_time",       "END_TIME",        20, false, Slurmon::SortKey::None,  false, "%e",     "End"},
-        {"nodes",          "NODES",            6, false, Slurmon::SortKey::None,  false, "%D",     "NNodes"},
-        {"nodelist",       "NODELIST/REASON", -1, true,  Slurmon::SortKey::None,  false, "%R",     "NodeList"},
-        {"reason",         "REASON",          20, true,  Slurmon::SortKey::None,  false, "%r",     nullptr},
-        {"min_cpus",       "MIN_CPUS",         8, false, Slurmon::SortKey::None,  false, "%c",     "ReqCPUS"},
-        {"cpus",           "CPUS",             6, false, Slurmon::SortKey::None,  false, "%C",     "AllocCPUS"},
-        {"min_memory",     "MIN_MEMORY",      12, false, Slurmon::SortKey::None,  false, "%m",     "ReqMem"},
-        {"tres",           "TRES",            25, true,  Slurmon::SortKey::None,  false, "%b",     "ReqTRES"},
-        {"features",       "FEATURES",        15, false, Slurmon::SortKey::None,  false, "%f",     nullptr},
-        {"dependency",     "DEPENDENCY",      15, false, Slurmon::SortKey::None,  false, "%E",     nullptr},
-        {"reservation",    "RESERVATION",     15, false, Slurmon::SortKey::None,  false, "%v",     "Reservation"},
-        {"wckey",          "WCKEY",           10, false, Slurmon::SortKey::None,  false, "%w",     "Wckey"},
-        {"licenses",       "LICENSES",        15, false, Slurmon::SortKey::None,  false, "%W",     nullptr},
-        {"command",        "COMMAND",         30, true,  Slurmon::SortKey::None,  false, "%o",     nullptr},
-        {"workdir",        "WORKDIR",         30, true,  Slurmon::SortKey::None,  false, "%Z",     "WorkDir"},
-        {"exec_host",      "EXEC_HOST",       15, false, Slurmon::SortKey::None,  false, "%B",     nullptr},
-        {"array_id",       "ARRAY_ID",        12, false, Slurmon::SortKey::None,  false, "%F",     nullptr},
-        {"array_task",     "ARRAY_TASK",      10, false, Slurmon::SortKey::None,  false, "%K",     nullptr},
-        {"sockets",        "SOCKETS",          7, false, Slurmon::SortKey::None,  false, "%H",     nullptr},
-        {"cores",          "CORES",            5, false, Slurmon::SortKey::None,  false, "%I",     nullptr},
-        {"threads",        "THREADS",          7, false, Slurmon::SortKey::None,  false, "%J",     nullptr},
-        {"sct",            "S:C:T",            7, false, Slurmon::SortKey::None,  false, "%z",     nullptr},
-        {"comment",        "COMMENT",         20, true,  Slurmon::SortKey::None,  false, "%k",     "Comment"},
-        {"exit_code",      "EXIT_CODE",        9, false, Slurmon::SortKey::None,  false, nullptr,  "ExitCode"},
-    };
-    // clang-format on
-    return cols;
-}
-
-// Resolve the configured column names into a display list, silently
-// dropping any unknown keys. Falls back to the default set if the user
-// left the array empty.
-static std::vector<JobColumn>
-resolve_columns(const std::vector<std::string> &names)
-{
-    const auto &all = all_job_columns();
-    std::vector<JobColumn> out;
-    for (const auto &n : names)
+    if (auto arr = toml["detail_view"]["columns"].as_array())
     {
-        for (const auto &c : all)
-        {
-            if (n == c.key)
-            {
-                out.push_back(c);
-                break;
-            }
-        }
+        std::vector<std::string> cols;
+        for (auto &&v : *arr)
+            if (auto s = v.value<std::string>())
+                cols.push_back(*s);
+        if (!cols.empty())
+            m_config.detail_view.columns = std::move(cols);
     }
-    if (out.empty())
-    {
-        for (const auto &n : {"id", "name", "state", "time"})
-            for (const auto &c : all)
-                if (std::string(c.key) == n)
-                    out.push_back(c);
-    }
-    return out;
 }
 
 // Build all rows for the job table

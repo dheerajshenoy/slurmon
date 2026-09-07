@@ -27,10 +27,8 @@ error_first = false    # show stderr first instead of stdout
 
 [detail_view]
 show = true
-show_id = true
-show_name = true
-show_state = true
-show_user = true
-show_time = true
-show_nodes = true
-show_nodelist = true
+# Fields shown in the details pane, in order. Same key set as
+# job_view.columns above (id, name, state, user, time, nodes, nodelist,
+# partition, qos, priority, time_limit, submit_time, start_time, end_time,
+# cpus, min_memory, tres, workdir, reason, exit_code, ...).
+columns = ["id", "name", "state", "user", "time", "nodes", "nodelist"]

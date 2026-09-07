@@ -35,13 +35,10 @@ struct Config
 
     struct DetailView
     {
-        bool show      = true;
-        bool show_id   = true;
-        bool show_name = true;
-        bool show_state = true;
-        bool show_user = true;
-        bool show_time = true;
-        bool show_nodes = true;
-        bool show_nodelist = true;
+        bool show = true;
+        // Fields shown in the details pane, in order. Same key set as
+        // job_view.columns (see all_job_columns()).
+        std::vector<std::string> columns
+            = {"id", "name", "state", "user", "time", "nodes", "nodelist"};
     } detail_view;
 };
