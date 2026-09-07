@@ -35,3 +35,14 @@ target_compile_definitions(${PROJECT_NAME} PRIVATE
     SLURMON_VERSION="${PROJECT_VERSION}"
 )
 
+include(GNUInstallDirs)
+
+install(TARGETS ${PROJECT_NAME}
+    RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+
+install(FILES ${CMAKE_SOURCE_DIR}/docs/slurmon.1
+    DESTINATION ${CMAKE_INSTALL_MANDIR}/man1)
+
+install(FILES ${CMAKE_SOURCE_DIR}/example_config.toml
+    DESTINATION ${CMAKE_INSTALL_DOCDIR})
+

@@ -358,8 +358,11 @@ Slurmon::init_ui() noexcept
 
     if (m_split_size < 0)
     {
-        auto dim     = Terminal::Size();
-        m_split_size = std::max(20, dim.dimx / 2);
+        auto dim      = Terminal::Size();
+        double frac   = m_config.job_view.split_fraction;
+        if (frac < 0.05) frac = 0.05;
+        if (frac > 0.95) frac = 0.95;
+        m_split_size  = std::max(10, static_cast<int>(dim.dimx * frac));
     }
 
     auto fetch_current = [this]
@@ -989,6 +992,8 @@ Slurmon::init_config() noexcept
         if (!cols.empty())
             m_config.job_view.columns = std::move(cols);
     }
+    load_config_field(toml, "job_view", "split_fraction",
+                      m_config.job_view.split_fraction);
     load_config_field(toml, "job_view", "sort_by", m_config.job_view.sort_by);
     load_config_field(toml, "job_view", "sort_descending",
                       m_config.job_view.sort_descending);

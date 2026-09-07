@@ -1,0 +1,109 @@
+.TH SLURMON 1 "2026-09-07" "slurmon 0.1" "User Commands"
+.SH NAME
+slurmon \- interactive TUI for monitoring SLURM jobs
+.SH SYNOPSIS
+.B slurmon
+.RI [ options ]
+.SH DESCRIPTION
+.B slurmon
+is a terminal user interface for monitoring SLURM workloads.
+It displays a live list of jobs (via
+.BR squeue (1)),
+a historical view (via
+.BR sacct (1)),
+per-job details, and the tail of each job's stdout and stderr logs.
+Jobs can be cancelled from the UI with confirmation (via
+.BR scancel (1)).
+.PP
+The list, columns, sort order, and pane visibility are configured through
+a TOML file (see
+.B FILES
+below).
+.SH OPTIONS
+.TP
+.BR \-c ", " \-\-config " " \fIPATH\fR
+Path to a TOML configuration file. If omitted,
+.B slurmon
+looks for one in the default location.
+.TP
+.BR \-v ", " \-\-version
+Print version information and exit.
+.TP
+.BR \-h ", " \-\-help
+Print a short usage summary and exit.
+.TP
+.BI \-\-squeue\-args \ ARGS
+Extra arguments appended verbatim to the underlying
+.B squeue
+invocation. Example:
+.RS
+.B \-\-squeue\-args="\-u $USER \-p gpu"
+.RE
+.TP
+.BI \-\-sacct\-args \ ARGS
+Extra arguments appended to the underlying
+.B sacct
+invocation used for the history view.
+.TP
+.BI \-\-scancel\-args \ ARGS
+Extra arguments prepended to the
+.B scancel
+invocation before the job id (e.g.
+.BR \-\-signal=TERM ).
+.SH KEY BINDINGS
+.TP
+.B j / k
+Move the selection down / up.
+.TP
+.B gg
+Jump to the first job.
+.TP
+.B G
+Jump to the last job.
+.TP
+.B e
+Toggle between the stdout and stderr log view.
+.TP
+.B c
+Cancel the selected job or array range.
+.TP
+.B C
+Cancel the parent job (array root).
+.TP
+.B /
+Enter search mode (matches id, name, state, time).
+.TP
+.B t
+Toggle between the live and history view.
+.TP
+.B s
+Cycle the sort key (none, id, name, state, time).
+.TP
+.B S
+Toggle the sort direction.
+.TP
+.B Esc
+Clear the active search filter.
+.TP
+.B ?
+Toggle the help dialog.
+.TP
+.B F1
+Toggle the footer.
+.TP
+.B q
+Quit.
+.SH FILES
+.TP
+.I ~/.config/slurmon/config.toml
+Default configuration file location.
+.TP
+.I example_config.toml
+Reference configuration shipped with the source tree.
+.SH SEE ALSO
+.BR squeue (1),
+.BR sacct (1),
+.BR scancel (1),
+.BR scontrol (1)
+.SH AUTHOR
+Dheeraj Vittal Shenoy

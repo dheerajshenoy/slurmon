@@ -16,6 +16,9 @@ struct Config
         // Columns to display, in order. Recognised keys:
         // id, name, state, user, time, nodes, nodelist
         std::vector<std::string> columns = {"id", "name", "state", "time"};
+        // Fraction (0.05 - 0.95) of the terminal width given to the job list
+        // pane at startup; the remainder goes to details/logs.
+        double split_fraction = 0.5;
     } job_view;
 
     struct Footer
