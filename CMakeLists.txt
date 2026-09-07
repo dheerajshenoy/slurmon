@@ -53,7 +53,7 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
     target_compile_options(${PROJECT_NAME} PRIVATE
         $<$<CONFIG:Release>:-O3 -DNDEBUG -fno-plt -ffunction-sections -fdata-sections>
         $<$<CONFIG:RelWithDebInfo>:-O3 -fno-plt -ffunction-sections -fdata-sections>
-        -Wall -Wextra -Wpedantic
+        -Wall -Wextra -Wpedantic -Werror
     )
     target_link_options(${PROJECT_NAME} PRIVATE
         $<$<CONFIG:Release>:-Wl,--gc-sections -Wl,-s>
@@ -62,7 +62,7 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
 elseif(MSVC)
     target_compile_options(${PROJECT_NAME} PRIVATE
         $<$<CONFIG:Release>:/O2 /DNDEBUG>
-        /W4
+        /W4 /WX
     )
 endif()
 
