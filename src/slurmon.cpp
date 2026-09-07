@@ -652,7 +652,7 @@ Slurmon::init_ui() noexcept
                 if (it == all.end())
                     continue;
                 shown.push_back(&*it);
-                int w = static_cast<int>(std::string(it->label).size()) + 1;
+                int w = static_cast<int>(std::string(it->label).size());
                 if (w > label_w)
                     label_w = w;
             }
@@ -673,8 +673,7 @@ Slurmon::init_ui() noexcept
                 Element value_el       = text(val);
                 if (c->colored && std::string(c->key) == "state")
                     value_el = text(val) | state_color(val) | bold;
-                std::string label = std::string(c->label) + ":";
-                rows.push_back(field(label, std::move(value_el)));
+                rows.push_back(field(c->label, std::move(value_el)));
             }
             details = rows.empty() ? filler() : vbox(std::move(rows));
         }
