@@ -663,6 +663,7 @@ Slurmon::init_ui() noexcept
                 return hbox({
                     text(label) | bold | color(Color::Cyan)
                         | size(WIDTH, EQUAL, label_w),
+                    text(" ") | size(WIDTH, EQUAL, 1),
                     std::move(val) | xflex,
                 });
             };
