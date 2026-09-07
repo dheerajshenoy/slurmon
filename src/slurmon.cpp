@@ -8,6 +8,7 @@
 #include <fstream>
 #include <iostream>
 #include <memory>
+#include <set>
 #include <sstream>
 #include <thread>
 
@@ -339,6 +340,92 @@ resolve_columns(const std::vector<std::string> &names)
                 if (std::string(c.key) == n)
                     out.push_back(c);
     }
+    return out;
+}
+
+// key -> index in all_job_columns(); built once. Job stores fields in a
+// vector<string> sized by column_count(), so lookup is a hash-map hit and
+// a pointer offset instead of unordered_map<string,string>.
+static const std::unordered_map<std::string_view, int> &
+column_index_map()
+{
+    static const std::unordered_map<std::string_view, int> m = []
+    {
+        std::unordered_map<std::string_view, int> out;
+        const auto &cols = all_job_columns();
+        out.reserve(cols.size());
+        for (size_t i = 0; i < cols.size(); ++i)
+            out.emplace(cols[i].key, static_cast<int>(i));
+        return out;
+    }();
+    return m;
+}
+
+int
+column_index(std::string_view key)
+{
+    const auto &m = column_index_map();
+    auto it       = m.find(key);
+    return it == m.end() ? -1 : it->second;
+}
+
+size_t
+column_count()
+{
+    return all_job_columns().size();
+}
+
+// Cached indices for the columns hardcoded in the UI (details, cancel
+// dialog, search). Initialised on first use.
+namespace
+{
+struct HotColumns
+{
+    int id, name, state, user, time, nodes, nodelist;
+    HotColumns()
+        : id(column_index("id")), name(column_index("name")),
+          state(column_index("state")), user(column_index("user")),
+          time(column_index("time")), nodes(column_index("nodes")),
+          nodelist(column_index("nodelist"))
+    {
+    }
+};
+static const HotColumns &
+hot()
+{
+    static const HotColumns h;
+    return h;
+}
+} // namespace
+
+const std::string &Job::id() const                 { return get(hot().id); }
+const std::string &Job::name() const               { return get(hot().name); }
+const std::string &Job::state() const              { return get(hot().state); }
+const std::string &Job::user() const               { return get(hot().user); }
+const std::string &Job::time() const               { return get(hot().time); }
+const std::string &Job::nodes() const              { return get(hot().nodes); }
+const std::string &Job::nodelist_or_reason() const { return get(hot().nodelist); }
+
+// Columns fetched from squeue/sacct on every refresh: the ones displayed
+// in the list, in the details pane, needed for cancel/log resolution, and
+// searched. Anything not in this set stays empty in each Job and is not
+// requested from SLURM.
+std::vector<const JobColumn *>
+Slurmon::required_columns() const
+{
+    std::set<std::string_view> want;
+    // Always needed for cancel dialog, log lookup, search, coloring.
+    for (const char *k : {"id", "name", "state", "time"})
+        want.insert(k);
+    for (const auto &k : m_config.job_view.columns)
+        want.insert(k);
+    for (const auto &k : m_config.detail_view.columns)
+        want.insert(k);
+
+    std::vector<const JobColumn *> out;
+    for (const auto &c : all_job_columns())
+        if (want.count(c.key))
+            out.push_back(&c);
     return out;
 }
 
@@ -1197,7 +1284,7 @@ Slurmon::build_rows(const std::vector<const Job *> &jobs)
                 row_cells.push_back(separator());
             const std::string &val = j.get(columns[i].key);
             auto el                = cell(val, widths[i], columns[i].flex);
-            if (columns[i].colored)
+            if (columns[i].colored && static_cast<int>(r) != m_selected_row)
                 el = el | state_color(j.state()) | bold;
             row_cells.push_back(el);
         }
@@ -1221,25 +1308,23 @@ slurp_pipe(FILE *fp)
     return out;
 }
 
-// Parse a pipe-delimited line into `keys` fields in order, assigning
-// each token to the matching column key on the job. Missing trailing
-// fields become empty strings.
+// Parse a pipe-delimited line and drop each field at the corresponding
+// column index. Missing trailing fields stay empty (default from Job's
+// vector construction).
 static Job
-parse_row(const std::string &line, const std::vector<const char *> &keys)
+parse_row(const std::string &line, const std::vector<int> &idxs)
 {
     Job j;
     size_t pos = 0;
-    for (size_t i = 0; i < keys.size(); ++i)
+    for (size_t i = 0; i < idxs.size(); ++i)
     {
         auto next = line.find('|', pos);
         if (next == std::string::npos)
         {
-            j.set(keys[i], line.substr(pos));
-            for (size_t k = i + 1; k < keys.size(); ++k)
-                j.set(keys[k], "");
+            j.set(idxs[i], line.substr(pos));
             return j;
         }
-        j.set(keys[i], line.substr(pos, next - pos));
+        j.set(idxs[i], line.substr(pos, next - pos));
         pos = next + 1;
     }
     return j;
@@ -1254,15 +1339,15 @@ Slurmon::fetch_jobs()
     std::vector<Job> jobs;
 
     std::string fmt;
-    std::vector<const char *> keys;
-    for (const auto &c : all_job_columns())
+    std::vector<int> idxs;
+    for (const auto *c : required_columns())
     {
-        if (!c.squeue_fmt)
+        if (!c->squeue_fmt)
             continue;
         if (!fmt.empty())
             fmt += "|";
-        fmt += c.squeue_fmt;
-        keys.push_back(c.key);
+        fmt += c->squeue_fmt;
+        idxs.push_back(column_index(c->key));
     }
 
     std::string cmd = "squeue --noheader -o \"" + fmt + "\"";
@@ -1284,28 +1369,29 @@ Slurmon::fetch_jobs()
     {
         if (line.empty())
             continue;
-        jobs.push_back(parse_row(line, keys));
+        jobs.push_back(parse_row(line, idxs));
     }
     return jobs;
 }
 
-// Fetch historical jobs via sacct. Requests every column that has a
-// sacct field name; columns without a sacct equivalent stay empty.
+// Fetch historical jobs via sacct. Requests only the columns the UI
+// actually needs (union of job_view + detail_view + search/cancel/log
+// requirements). Columns without a sacct equivalent stay empty.
 std::vector<Job>
 Slurmon::fetch_history_jobs()
 {
     std::vector<Job> jobs;
 
     std::string fields;
-    std::vector<const char *> keys;
-    for (const auto &c : all_job_columns())
+    std::vector<int> idxs;
+    for (const auto *c : required_columns())
     {
-        if (!c.sacct_fmt)
+        if (!c->sacct_fmt)
             continue;
         if (!fields.empty())
             fields += ",";
-        fields += c.sacct_fmt;
-        keys.push_back(c.key);
+        fields += c->sacct_fmt;
+        idxs.push_back(column_index(c->key));
     }
 
     std::string cmd = "sacct --noheader -X -P -o " + fields;
@@ -1327,7 +1413,7 @@ Slurmon::fetch_history_jobs()
     {
         if (line.empty())
             continue;
-        jobs.push_back(parse_row(line, keys));
+        jobs.push_back(parse_row(line, idxs));
     }
     return jobs;
 }

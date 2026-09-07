@@ -10,6 +10,8 @@
 #include <mutex>
 #include <unordered_map>
 
+struct JobColumn;
+
 class Slurmon
 {
 public:
@@ -47,6 +49,7 @@ private:
 
     std::vector<Job> fetch_jobs();
     std::vector<Job> fetch_history_jobs();
+    std::vector<const JobColumn *> required_columns() const;
     static LogPaths fetch_log_paths(const std::string &job_id);
     static std::string read_tail(const std::string &path, size_t max_lines);
     bool cancel_job(const std::string &job_id);

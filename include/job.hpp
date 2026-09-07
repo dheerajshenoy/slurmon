@@ -3,40 +3,55 @@
 #include "pch.hpp"
 
 #include <string>
-#include <unordered_map>
+#include <string_view>
+#include <vector>
 
-// SLURM job — a bag of pipe-delimited fields keyed by our column name.
-// Legacy accessors below wrap get() for the columns the UI hardcodes
-// (details/logs/cancel dialogs).
+// Column index lookup — resolved once against the static column table
+// defined in slurmon.cpp. Returns -1 for unknown keys.
+int column_index(std::string_view key);
+size_t column_count();
+
+// SLURM job — one string per column, indexed by column_index().
 class Job
 {
 public:
-    Job() = default;
+    Job() : m_fields(column_count()) {}
 
-    void set(const std::string &key, std::string value)
+    void set(int idx, std::string value)
     {
-        m_fields[key] = std::move(value);
+        if (idx < 0)
+            return;
+        if (static_cast<size_t>(idx) >= m_fields.size())
+            m_fields.resize(idx + 1);
+        m_fields[idx] = std::move(value);
     }
 
-    const std::string &get(const std::string &key) const
+    const std::string &get(int idx) const
     {
-        auto it = m_fields.find(key);
-        if (it == m_fields.end())
-        {
-            static const std::string empty;
+        static const std::string empty;
+        if (idx < 0 || static_cast<size_t>(idx) >= m_fields.size())
             return empty;
-        }
-        return it->second;
+        return m_fields[idx];
     }
 
-    const std::string &id() const                 { return get("id"); }
-    const std::string &name() const               { return get("name"); }
-    const std::string &state() const              { return get("state"); }
-    const std::string &user() const               { return get("user"); }
-    const std::string &time() const               { return get("time"); }
-    const std::string &nodes() const              { return get("nodes"); }
-    const std::string &nodelist_or_reason() const { return get("nodelist"); }
+    void set(std::string_view key, std::string value)
+    {
+        set(column_index(key), std::move(value));
+    }
+
+    const std::string &get(std::string_view key) const
+    {
+        return get(column_index(key));
+    }
+
+    const std::string &id() const;
+    const std::string &name() const;
+    const std::string &state() const;
+    const std::string &user() const;
+    const std::string &time() const;
+    const std::string &nodes() const;
+    const std::string &nodelist_or_reason() const;
 
 private:
-    std::unordered_map<std::string, std::string> m_fields;
+    std::vector<std::string> m_fields;
 };
