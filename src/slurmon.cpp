@@ -546,8 +546,15 @@ Slurmon::init_ui() noexcept
 
     Component content_component;
     if (left_visible && right_visible)
-        content_component
-            = ResizableSplitLeft(left_renderer, right_renderer, &m_split_size);
+    {
+        ResizableSplitOption opts;
+        opts.main           = left_renderer;
+        opts.back           = right_renderer;
+        opts.direction      = Direction::Left;
+        opts.main_size      = &m_split_size;
+        opts.separator_func = [] { return separator() | dim; };
+        content_component   = ResizableSplit(opts);
+    }
     else if (right_visible)
         content_component = Container::Vertical({right_renderer});
     else if (left_visible)
