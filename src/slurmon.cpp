@@ -637,17 +637,13 @@ Slurmon::init_ui() noexcept
         if (m_selected_row >= 0
             && m_selected_row < static_cast<int>(view.size()))
         {
-            const Job &j = *view[m_selected_row];
-            auto field   = [](const std::string &label, Element val)
-            {
-                return hbox({
-                    text(label) | bold | color(Color::Cyan)
-                        | size(WIDTH, EQUAL, 10),
-                    std::move(val),
-                });
-            };
-            Elements rows;
+            const Job &j    = *view[m_selected_row];
             const auto &all = all_job_columns();
+
+            // First pass: collect the columns we'll render and size the
+            // label gutter to the widest label so nothing gets clipped.
+            std::vector<const JobColumn *> shown;
+            int label_w = 0;
             for (const auto &key : m_config.detail_view.columns)
             {
                 auto it = std::find_if(
@@ -655,11 +651,29 @@ Slurmon::init_ui() noexcept
                     [&](const JobColumn &c) { return c.key == key; });
                 if (it == all.end())
                     continue;
-                const std::string &val = j.get(key);
+                shown.push_back(&*it);
+                int w = static_cast<int>(std::string(it->label).size()) + 1;
+                if (w > label_w)
+                    label_w = w;
+            }
+            label_w += 1; // one space between label and value
+
+            auto field = [label_w](const std::string &label, Element val)
+            {
+                return hbox({
+                    text(label) | bold | color(Color::Cyan)
+                        | size(WIDTH, EQUAL, label_w),
+                    std::move(val) | xflex,
+                });
+            };
+            Elements rows;
+            for (const auto *c : shown)
+            {
+                const std::string &val = j.get(c->key);
                 Element value_el       = text(val);
-                if (it->colored && key == "state")
+                if (c->colored && std::string(c->key) == "state")
                     value_el = text(val) | state_color(val) | bold;
-                std::string label = std::string(it->label) + ":";
+                std::string label = std::string(c->label) + ":";
                 rows.push_back(field(label, std::move(value_el)));
             }
             details = rows.empty() ? filler() : vbox(std::move(rows));
