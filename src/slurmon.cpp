@@ -569,7 +569,7 @@ Slurmon::init_ui() noexcept
         if (m_show_footer)
         {
             root.push_back(
-                text("/ search, s sort, t history, ? help, F1 footer, q quit") | dim
+                text("? help, F1 footer, q quit") | dim
                 | center);
         }
         Element page = vbox(std::move(root));
