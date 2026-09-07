@@ -25,6 +25,7 @@ FetchContent_Declare(ftxui
     GIT_TAG v7.0.3  # Replace with a version, tag, or commit hash
 )
 
+set(FTXUI_QUIET ON CACHE BOOL "Silence FTXUI's configure banner" FORCE)
 FetchContent_MakeAvailable(ftxui)
 
 include_directories(${PROJECT_NAME} PRIVATE
