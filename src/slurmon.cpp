@@ -530,7 +530,11 @@ Slurmon::init_ui() noexcept
         if (m_config.detail_view.show)
             panes.push_back(window(text(" Details ") | bold, details));
         if (m_config.log_view.show)
-            panes.push_back(window(text(log_title) | bold, log_content) | flex);
+            panes.push_back(
+                window(text(log_title) | bold
+                           | color(m_show_stderr ? Color::Red : Color::Green),
+                       log_content)
+                | flex);
         if (panes.empty())
             panes.push_back(filler());
         return vbox(std::move(panes));
@@ -570,7 +574,14 @@ Slurmon::init_ui() noexcept
         if (m_show_footer)
         {
             root.push_back(
-                text("? help, F1 footer, q quit") | dim
+                hbox({
+                    text("?") | color(Color::Yellow) | bold,
+                    text(" help  ") | dim,
+                    text("F1") | color(Color::Yellow) | bold,
+                    text(" footer  ") | dim,
+                    text("q") | color(Color::Yellow) | bold,
+                    text(" quit") | dim,
+                })
                 | center);
         }
         Element page = vbox(std::move(root));
@@ -580,12 +591,13 @@ Slurmon::init_ui() noexcept
             auto binding = [](const std::string &keys, const std::string &desc)
             {
                 return hbox({
-                    text(keys) | bold | size(WIDTH, EQUAL, 14),
-                    text(desc),
+                    text(keys) | bold | color(Color::Yellow)
+                        | size(WIDTH, EQUAL, 14),
+                    text(desc) | dim,
                 });
             };
             auto help
-                = window(text(" Help ") | bold,
+                = window(text(" Help ") | bold | color(Color::Cyan),
                          vbox({
                              binding("j / k", "move selection down / up"),
                              binding("gg", "jump to first job"),
@@ -628,22 +640,30 @@ Slurmon::init_ui() noexcept
             }
 
             Elements dialog_children = {
-                text("Cancel Job") | bold | center,
+                text("Cancel Job") | bold | color(Color::Red) | center,
                 separator(),
-                text("ID:      " + m_cancel_target_id),
-                text("Name:    " + m_cancel_target_name),
-                text("Cancels: " + will) | dim,
+                hbox({text("ID:      ") | color(Color::Cyan) | bold,
+                      text(m_cancel_target_id)}),
+                hbox({text("Name:    ") | color(Color::Cyan) | bold,
+                      text(m_cancel_target_name)}),
+                hbox({text("Cancels: ") | color(Color::Cyan) | bold,
+                      text(will) | dim}),
                 text(""),
-                text("Really cancel?") | center,
+                text("Really cancel?") | bold | center,
                 text(""),
-                text("[y] confirm    [n/Esc] cancel") | dim | center,
+                hbox({
+                    text("[y]") | color(Color::Green) | bold,
+                    text(" confirm    ") | dim,
+                    text("[n/Esc]") | color(Color::Red) | bold,
+                    text(" cancel") | dim,
+                }) | center,
             };
             if (!m_cancel_status.empty())
             {
                 dialog_children.push_back(separator());
                 dialog_children.push_back(text(m_cancel_status) | center);
             }
-            auto dialog = window(text(" Confirm ") | bold,
+            auto dialog = window(text(" Confirm ") | bold | color(Color::Red),
                                  vbox(std::move(dialog_children)))
                           | size(WIDTH, GREATER_THAN, 40) | clear_under
                           | center;
