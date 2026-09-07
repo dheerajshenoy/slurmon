@@ -10,6 +10,21 @@
 #include <memory>
 #include <set>
 #include <sstream>
+
+// Custom deleter avoids `decltype(&pclose)` — GCC warns on that because
+// pclose's function attributes can't ride along as a template argument.
+namespace
+{
+struct PCloseDeleter
+{
+    void operator()(FILE *fp) const noexcept
+    {
+        if (fp)
+            pclose(fp);
+    }
+};
+using PipePtr = std::unique_ptr<FILE, PCloseDeleter>;
+} // namespace
 #include <thread>
 
 template <typename T>
@@ -1372,8 +1387,7 @@ Slurmon::fetch_jobs()
     if (!m_squeue_args.empty())
         cmd += " " + m_squeue_args;
     cmd += " 2>/dev/null";
-    std::unique_ptr<FILE, decltype(&pclose)> pipe(popen(cmd.c_str(), "r"),
-                                                  pclose);
+    PipePtr pipe(popen(cmd.c_str(), "r"));
     if (!pipe)
         return jobs;
 
@@ -1416,8 +1430,7 @@ Slurmon::fetch_history_jobs()
     if (!m_sacct_args.empty())
         cmd += " " + m_sacct_args;
     cmd += " 2>/dev/null";
-    std::unique_ptr<FILE, decltype(&pclose)> pipe(popen(cmd.c_str(), "r"),
-                                                  pclose);
+    PipePtr pipe(popen(cmd.c_str(), "r"));
     if (!pipe)
         return jobs;
 
@@ -1443,8 +1456,7 @@ Slurmon::fetch_log_paths(const std::string &job_id)
     LogPaths result;
 
     std::string cmd = "scontrol show job " + job_id + " 2>/dev/null";
-    std::unique_ptr<FILE, decltype(&pclose)> pipe(popen(cmd.c_str(), "r"),
-                                                  pclose);
+    PipePtr pipe(popen(cmd.c_str(), "r"));
     if (!pipe)
         return result;
 
