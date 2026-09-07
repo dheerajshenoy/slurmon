@@ -449,7 +449,8 @@ Slurmon::init_ui() noexcept
             auto field   = [](const std::string &label, Element val)
             {
                 return hbox({
-                    text(label) | bold | size(WIDTH, EQUAL, 10),
+                    text(label) | bold | color(Color::Cyan)
+                        | size(WIDTH, EQUAL, 10),
                     std::move(val),
                 });
             };
