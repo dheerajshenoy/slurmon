@@ -1293,6 +1293,17 @@ Slurmon::build_rows(const std::vector<const Job *> &jobs)
         widths[i] = w + kAutoPadding;
     }
 
+    if (fit_content && !columns.empty())
+    {
+        int total = 0;
+        for (int w : widths) total += w;
+        total += static_cast<int>(columns.size()) - 1; // separators
+        total += 2;                                    // window border
+        auto dim  = Terminal::Size();
+        int upper = std::max(10, static_cast<int>(dim.dimx * 0.95));
+        m_split_size = std::min(std::max(10, total), upper);
+    }
+
     auto cell = [](const std::string &s, int w, bool flex_it)
     {
         auto el = text(" " + s) | size(WIDTH, EQUAL, w);
