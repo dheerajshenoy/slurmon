@@ -1314,7 +1314,7 @@ Slurmon::build_rows(const std::vector<const Job *> &jobs)
         auto el = text(s) | size(WIDTH, EQUAL, widths[i]) | bold;
         if (m_sort_key != SortKey::None && m_sort_key == columns[i].sort)
             el = el | underlined | color(Color::Yellow);
-        if (columns[i].flex)
+        if (columns[i].flex && !fit_content)
             el = el | flex;
         header.push_back(el);
     }
@@ -1332,7 +1332,8 @@ Slurmon::build_rows(const std::vector<const Job *> &jobs)
             if (i > 0)
                 row_cells.push_back(separator());
             const std::string &val = j.get(columns[i].key);
-            auto el                = cell(val, widths[i], columns[i].flex);
+            auto el                = cell(val, widths[i],
+                                          columns[i].flex && !fit_content);
             if (columns[i].colored && static_cast<int>(r) != m_selected_row)
                 el = el | state_color(j.state()) | bold;
             row_cells.push_back(el);
