@@ -8,6 +8,7 @@ show = true
 loop_after_end = false
 refresh_interval = 5   # seconds between squeue refreshes
 split_fraction = 0.5   # 0.05 - 0.95, fraction of terminal width for the job list pane
+fit_content_width = true   # size every column to fit its widest value; set false to use preset widths
 sort_by = "none"       # none | id | name | state | time
 sort_descending = false
 

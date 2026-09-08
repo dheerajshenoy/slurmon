@@ -1219,6 +1219,8 @@ Slurmon::init_config() noexcept
     }
     load_config_field(toml, "job_view", "split_fraction",
                       m_config.job_view.split_fraction);
+    load_config_field(toml, "job_view", "fit_content_width",
+                      m_config.job_view.fit_content_width);
     load_config_field(toml, "job_view", "sort_by", m_config.job_view.sort_by);
     load_config_field(toml, "job_view", "sort_descending",
                       m_config.job_view.sort_descending);
@@ -1277,9 +1279,10 @@ Slurmon::build_rows(const std::vector<const Job *> &jobs)
     // Compute per-column widths (auto-size for base_width == -1).
     constexpr int kAutoPadding = 2;
     std::vector<int> widths(columns.size());
+    const bool fit_content = m_config.job_view.fit_content_width;
     for (size_t i = 0; i < columns.size(); ++i)
     {
-        if (columns[i].base_width >= 0)
+        if (!fit_content && columns[i].base_width >= 0)
         {
             widths[i] = columns[i].base_width;
             continue;

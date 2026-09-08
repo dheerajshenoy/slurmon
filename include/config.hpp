@@ -19,6 +19,9 @@ struct Config
         // Fraction (0.05 - 0.95) of the terminal width given to the job list
         // pane at startup; the remainder goes to details/logs.
         double split_fraction = 0.5;
+        // When true, every column is sized to fit its widest value (plus
+        // the header), overriding the per-column base widths.
+        bool fit_content_width = true;
     } job_view;
 
     struct Footer
