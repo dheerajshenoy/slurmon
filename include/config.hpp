@@ -10,7 +10,7 @@ struct Config
         bool show = true;
         bool loop_after_end
             = false; // Whether to loop the job list after reaching the end
-        int refresh_interval = 5; // Seconds between squeue refreshes
+        int refresh_interval = 5;      // Seconds between squeue refreshes
         std::string sort_by  = "none"; // none|id|name|state|time
         bool sort_descending = false;
         // Columns to display, in order. Recognised keys:
@@ -18,10 +18,10 @@ struct Config
         std::vector<std::string> columns = {"id", "name", "state", "time"};
         // Fraction (0.05 - 0.95) of the terminal width given to the job list
         // pane at startup; the remainder goes to details/logs.
-        double split_fraction = 0.5;
+        double split_fraction            = 0.5;
         // When true, every column is sized to fit its widest value (plus
         // the header), overriding the per-column base widths.
-        bool fit_content_width = true;
+        bool fit_content_width           = true;
     } job_view;
 
     struct Footer

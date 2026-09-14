@@ -8,8 +8,10 @@
 
 // Column index lookup — resolved once against the static column table
 // defined in slurmon.cpp. Returns -1 for unknown keys.
-int column_index(std::string_view key);
-size_t column_count();
+int
+column_index(std::string_view key);
+size_t
+column_count();
 
 // SLURM job — one string per column, indexed by column_index().
 class Job
