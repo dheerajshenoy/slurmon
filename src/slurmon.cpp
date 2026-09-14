@@ -1195,7 +1195,11 @@ Slurmon::init_ui() noexcept
             }
             cmd += "'";
 
-            screen.WithRestoredIO([cmd] { (void)std::system(cmd.c_str()); })();
+            screen.WithRestoredIO([cmd]
+            {
+                int rc = std::system(cmd.c_str());
+                (void)rc;
+            })();
             return true;
         }
 
