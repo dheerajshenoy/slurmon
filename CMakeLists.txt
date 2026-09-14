@@ -53,7 +53,7 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
     target_compile_options(${PROJECT_NAME} PRIVATE
         $<$<CONFIG:Release>:-O3 -DNDEBUG -fno-plt -ffunction-sections -fdata-sections>
         $<$<CONFIG:RelWithDebInfo>:-O3 -fno-plt -ffunction-sections -fdata-sections>
-        -Wall -Wextra -Wpedantic -Werror
+        -Wall -Wextra -Wpedantic -Werror -Wno-unused-return-value
     )
     target_link_options(${PROJECT_NAME} PRIVATE
         $<$<CONFIG:Release>:-Wl,--gc-sections -Wl,-s>
