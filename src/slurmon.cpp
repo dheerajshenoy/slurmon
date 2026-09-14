@@ -838,6 +838,7 @@ Slurmon::init_ui() noexcept
                              binding("gg", "jump to first job"),
                              binding("G", "jump to last job"),
                              binding("e", "toggle stdout / stderr log"),
+                             binding("o", "open current log in $EDITOR"),
                              binding("c", "cancel selected job / array range"),
                              binding("C", "cancel parent job (array root)"),
                              binding("/", "search (id/name/state/time)"),
@@ -1119,6 +1120,44 @@ Slurmon::init_ui() noexcept
         if (event == Event::Character('e'))
         {
             m_show_stderr = !m_show_stderr;
+            return true;
+        }
+
+        if (event == Event::Character('o'))
+        {
+            std::string path;
+            {
+                std::lock_guard<std::mutex> lk(m_jobs_mutex);
+                const auto &view = view_of(m_jobs);
+                if (m_selected_row < 0
+                    || m_selected_row >= static_cast<int>(view.size()))
+                    return true;
+                const Job &j      = *view[m_selected_row];
+                const auto &paths = log_paths_for(j.id());
+                path = m_show_stderr ? paths.stderr_path : paths.stdout_path;
+            }
+            if (path.empty())
+                return true;
+
+            const char *ed = std::getenv("EDITOR");
+            if (!ed || !*ed)
+                ed = "vi";
+
+            std::string cmd;
+            cmd.reserve(std::string(ed).size() + path.size() + 4);
+            cmd += ed;
+            cmd += " '";
+            for (char c : path)
+            {
+                if (c == '\'') cmd += "'\\''";
+                else           cmd += c;
+            }
+            cmd += "'";
+
+            screen.WithRestoredIO([cmd]
+            {
+                (void)std::system(cmd.c_str());
+            })();
             return true;
         }
 

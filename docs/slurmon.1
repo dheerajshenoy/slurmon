@@ -71,6 +71,13 @@ Jump to the last job.
 .B e
 Toggle between the stdout and stderr log view.
 .TP
+.B o
+Open the currently displayed log file (stdout or stderr) in
+.BR $EDITOR
+(falls back to
+.BR vi );
+slurmon is restored on exit.
+.TP
 .B c
 Cancel the selected job or array range.
 .TP
