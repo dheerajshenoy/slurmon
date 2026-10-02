@@ -6,6 +6,8 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
+find_package(Threads REQUIRED)
+
 # Default to a Release build when the user didn't pick a config.
 if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
     set(CMAKE_BUILD_TYPE Release CACHE STRING
@@ -14,19 +16,11 @@ if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
         Debug Release RelWithDebInfo MinSizeRel)
 endif()
 
-# Interprocedural (link-time) optimization for Release builds.
-include(CheckIPOSupported)
-check_ipo_supported(RESULT SLURMON_IPO_SUPPORTED OUTPUT SLURMON_IPO_ERR)
-
-include(FetchContent)
-
-FetchContent_Declare(ftxui
-    GIT_REPOSITORY https://github.com/ArthurSonzogni/FTXUI
-    GIT_TAG v7.0.3  # Replace with a version, tag, or commit hash
-)
-
-set(FTXUI_QUIET ON CACHE BOOL "Silence FTXUI's configure banner" FORCE)
-FetchContent_MakeAvailable(ftxui)
+set(FTXUI_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+set(FTXUI_BUILD_DOCS OFF CACHE BOOL "" FORCE)
+set(FTXUI_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+set(FTXUI_ENABLE_INSTALL OFF CACHE BOOL "" FORCE)
+add_subdirectory(third_party/ftxui)
 
 include_directories(${PROJECT_NAME} PRIVATE
     ${CMAKE_SOURCE_DIR}/include)
@@ -39,10 +33,17 @@ target_link_libraries(${PROJECT_NAME} PRIVATE
     PRIVATE ftxui::screen
     PRIVATE ftxui::dom
     PRIVATE ftxui::component
+    Threads::Threads
 )
 
-target_precompile_headers(${PROJECT_NAME} PRIVATE
-    ${CMAKE_SOURCE_DIR}/include/pch.hpp)
+if (CMAKE_VERSION VERSION_GREATER_EQUAL 3.16)
+	# Interprocedural (link-time) optimization for Release builds.
+	include(CheckIPOSupported)
+	check_ipo_supported(RESULT SLURMON_IPO_SUPPORTED OUTPUT SLURMON_IPO_ERR)
+
+	target_precompile_headers(${PROJECT_NAME} PRIVATE
+		${CMAKE_SOURCE_DIR}/include/pch.hpp)
+endif()
 
 target_compile_definitions(${PROJECT_NAME} PRIVATE
     SLURMON_VERSION="${PROJECT_VERSION}"
@@ -55,10 +56,13 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
         $<$<CONFIG:RelWithDebInfo>:-O3 -fno-plt -ffunction-sections -fdata-sections>
         -Wall -Wextra -Wpedantic -Werror -Wno-unused-return-value
     )
-    target_link_options(${PROJECT_NAME} PRIVATE
-        $<$<CONFIG:Release>:-Wl,--gc-sections -Wl,-s>
-        $<$<CONFIG:RelWithDebInfo>:-Wl,--gc-sections>
-    )
+
+if (SLURMON_IPO_SUPPORTED)
+	target_link_options(${PROJECT_NAME} PRIVATE
+		$<$<CONFIG:Release>:-Wl,--gc-sections -Wl,-s>
+		$<$<CONFIG:RelWithDebInfo>:-Wl,--gc-sections>
+		)
+endif()
 elseif(MSVC)
     target_compile_options(${PROJECT_NAME} PRIVATE
         $<$<CONFIG:Release>:/O2 /DNDEBUG>
