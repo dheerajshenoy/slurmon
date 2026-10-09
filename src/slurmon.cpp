@@ -1589,14 +1589,22 @@ Slurmon::fetch_log_paths(const std::string &job_id)
         output += buffer.data();
     pclose(pipe.release());
 
+    // scontrol prints StdOut= / StdErr= / Command= on their own line, so
+    // only a newline terminates the value — stopping at a space would
+    // truncate paths that contain spaces.
     auto extract = [&](const std::string &key) -> std::string
     {
         auto pos = output.find(key);
         if (pos == std::string::npos)
             return {};
         pos += key.size();
-        auto end = output.find_first_of(" \n\t", pos);
-        return output.substr(pos, end - pos);
+        auto end = output.find('\n', pos);
+        auto val = output.substr(pos, end - pos);
+        while (!val.empty()
+               && (val.back() == ' ' || val.back() == '\t'
+                   || val.back() == '\r'))
+            val.pop_back();
+        return val;
     };
 
     result.stdout_path = extract("StdOut=");
