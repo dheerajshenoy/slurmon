@@ -73,6 +73,8 @@ private:
     bool m_loop_after_end     = false;
     bool m_show_footer        = true;
     bool m_show_stderr        = false;
+    bool m_show_side_pane     = true;
+    int m_side_pane_tab       = 0; // 0: split view, 1: job list only
     bool m_show_help_dialog   = false;
     bool m_search_mode        = false;
     bool m_show_cancel_dialog = false;

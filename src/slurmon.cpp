@@ -842,7 +842,11 @@ Slurmon::init_ui() noexcept
         {
             return separator() | dim;
         };
-        content_component = ResizableSplit(opts);
+        auto split = ResizableSplit(opts);
+        // Full-width job list shown while the side pane is toggled off.
+        auto left_only = Renderer([left_renderer]
+        { return left_renderer->Render() | xflex; });
+        content_component = Container::Tab({split, left_only}, &m_side_pane_tab);
     }
     else if (right_visible)
         content_component = Container::Vertical({right_renderer});
@@ -905,6 +909,7 @@ Slurmon::init_ui() noexcept
                           binding("C", "cancel parent job (array root)"),
                           binding("/", "search (id/name/state/time)"),
                           binding("t", "toggle live / history view"),
+                          binding("p", "toggle details/logs side pane"),
                           binding("H", "widen history window (1/7/30/90/365d)"),
                           binding("s", "cycle sort (none→id→name→state→time→submit)"),
                           binding("S", "toggle sort direction"),
@@ -1012,6 +1017,13 @@ Slurmon::init_ui() noexcept
         {
             m_search_mode = true;
             m_search_buffer.clear();
+            return true;
+        }
+
+        if (event == Event::Character('p') && left_visible && right_visible)
+        {
+            m_show_side_pane = !m_show_side_pane;
+            m_side_pane_tab  = m_show_side_pane ? 0 : 1;
             return true;
         }
 
