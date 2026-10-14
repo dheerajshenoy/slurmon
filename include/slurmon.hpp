@@ -32,6 +32,7 @@ public:
         Name,
         State,
         Time,
+        Submit,
     };
 
 private:

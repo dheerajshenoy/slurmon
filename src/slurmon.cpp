@@ -228,6 +228,10 @@ sort_jobs(std::vector<const Job *> &jobs, Slurmon::SortKey key, bool descending)
             case Slurmon::SortKey::Time:
                 k.num = time_to_seconds(j->time());
                 break;
+            case Slurmon::SortKey::Submit:
+                // ISO-8601 timestamps sort correctly as strings.
+                k.str = &j->get("submit_time");
+                break;
             default:
                 break;
         }
@@ -266,6 +270,8 @@ sort_key_label(Slurmon::SortKey k)
             return "state";
         case Slurmon::SortKey::Time:
             return "time";
+        case Slurmon::SortKey::Submit:
+            return "submit";
         default:
             return "none";
     }
@@ -309,7 +315,7 @@ all_job_columns()
         {"time",           "TIME",            12, false, Slurmon::SortKey::Time,  false, "%M",     "Elapsed"},
         {"time_limit",     "TIME_LIMIT",      12, false, Slurmon::SortKey::None,  false, "%l",     "Timelimit"},
         {"time_left",      "TIME_LEFT",       12, false, Slurmon::SortKey::None,  false, "%L",     nullptr},
-        {"submit_time",    "SUBMIT_TIME",     20, false, Slurmon::SortKey::None,  false, "%V",     "Submit"},
+        {"submit_time",    "SUBMIT_TIME",     20, false, Slurmon::SortKey::Submit, false, "%V",     "Submit"},
         {"start_time",     "START_TIME",      20, false, Slurmon::SortKey::None,  false, "%S",     "Start"},
         {"end_time",       "END_TIME",        20, false, Slurmon::SortKey::None,  false, "%e",     "End"},
         {"nodes",          "NODES",            6, false, Slurmon::SortKey::None,  false, "%D",     "NNodes"},
@@ -900,7 +906,7 @@ Slurmon::init_ui() noexcept
                           binding("/", "search (id/name/state/time)"),
                           binding("t", "toggle live / history view"),
                           binding("H", "widen history window (1/7/30/90/365d)"),
-                          binding("s", "cycle sort (none→id→name→state→time)"),
+                          binding("s", "cycle sort (none→id→name→state→time→submit)"),
                           binding("S", "toggle sort direction"),
                           binding("Esc", "clear active filter"),
                           binding("?", "toggle this help"),
@@ -1253,6 +1259,9 @@ Slurmon::init_ui() noexcept
                     m_sort_key = SortKey::Time;
                     break;
                 case SortKey::Time:
+                    m_sort_key = SortKey::Submit;
+                    break;
+                case SortKey::Submit:
                     m_sort_key = SortKey::None;
                     break;
             }
@@ -1364,6 +1373,8 @@ Slurmon::init_config() noexcept
             m_sort_key = SortKey::State;
         else if (sb == "time")
             m_sort_key = SortKey::Time;
+        else if (sb == "submit")
+            m_sort_key = SortKey::Submit;
         else
             m_sort_key = SortKey::None;
         m_sort_descending = m_config.job_view.sort_descending;
