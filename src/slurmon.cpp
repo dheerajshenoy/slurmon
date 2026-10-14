@@ -1469,7 +1469,9 @@ Slurmon::build_rows(const std::vector<const Job *> &jobs)
     rows.push_back(hbox(std::move(header)));
     rows.push_back(separator());
 
-    // Data rows.
+    // Data rows, in a scrolling frame that follows the selected row.
+    Elements data_rows;
+    data_rows.reserve(jobs.size());
     for (size_t r = 0; r < jobs.size(); ++r)
     {
         const Job &j = *jobs[r];
@@ -1487,9 +1489,11 @@ Slurmon::build_rows(const std::vector<const Job *> &jobs)
         }
         auto row = hbox(std::move(row_cells));
         if (static_cast<int>(r) == m_selected_row)
-            row = row | inverted;
-        rows.push_back(row);
+            row = row | inverted | focus;
+        data_rows.push_back(row);
     }
+    rows.push_back(vbox(std::move(data_rows)) | vscroll_indicator | yframe
+                   | yflex);
 
     return rows;
 }
