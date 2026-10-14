@@ -469,7 +469,7 @@ Slurmon::required_columns() const
 {
     std::set<std::string_view> want;
     // Always needed for cancel dialog, log lookup, search, coloring.
-    for (const char *k : {"id", "name", "state", "time"})
+    for (const char *k : {"id", "name", "state", "time", "submit_time"})
         want.insert(k);
     for (const auto &k : m_config.job_view.columns)
         want.insert(k);
@@ -1405,9 +1405,14 @@ Slurmon::build_rows(const std::vector<const Job *> &jobs)
     // set only changes when config is (re)loaded, so cache it.
     static thread_local std::vector<std::string> cached_keys;
     static thread_local std::vector<JobColumn> cached_columns;
-    if (cached_keys != m_config.job_view.columns)
+    // The history view always shows when each job was submitted.
+    std::vector<std::string> keys = m_config.job_view.columns;
+    if (m_view_mode == ViewMode::History
+        && std::find(keys.begin(), keys.end(), "submit_time") == keys.end())
+        keys.push_back("submit_time");
+    if (cached_keys != keys)
     {
-        cached_keys    = m_config.job_view.columns;
+        cached_keys    = std::move(keys);
         cached_columns = resolve_columns(cached_keys);
     }
     const auto &columns = cached_columns;
