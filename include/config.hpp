@@ -11,6 +11,7 @@ struct Config
         bool loop_after_end
             = false; // Whether to loop the job list after reaching the end
         int refresh_interval = 5;      // Seconds between squeue refreshes
+        int history_days     = 7; // Lookback window of the history view (days)
         std::string sort_by  = "none"; // none|id|name|state|time
         bool sort_descending = false;
         // Columns to display, in order. Recognised keys:

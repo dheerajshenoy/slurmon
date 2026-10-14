@@ -563,6 +563,12 @@ Slurmon::init_args() noexcept
         .help("Extra arguments appended to the scancel command "
               "(e.g. --scancel-args=\"--signal=TERM\")");
 
+    m_argparse.add_argument("--history-days")
+        .nargs(1)
+        .scan<'i', int>()
+        .help("How many days back the history view looks (>= 1). "
+              "Overrides job_view.history_days from the config file.");
+
     m_argparse.add_argument("-r", "--refresh-interval")
         .nargs(1)
         .scan<'i', int>()
@@ -591,6 +597,9 @@ Slurmon::parse_args() noexcept
         m_sacct_args = m_argparse.get<std::string>("--sacct-args");
     if (m_argparse.is_used("--scancel-args"))
         m_scancel_args = m_argparse.get<std::string>("--scancel-args");
+    if (m_argparse.is_used("--history-days"))
+        m_history_days_cli
+            = std::max(1, m_argparse.get<int>("--history-days"));
     if (m_argparse.is_used("--refresh-interval"))
         m_refresh_interval_cli
             = std::max(1, m_argparse.get<int>("--refresh-interval"));
@@ -678,7 +687,11 @@ Slurmon::init_ui() noexcept
                 = view.empty() ? -1 : static_cast<int>(view.size()) - 1;
 
         std::string title
-            = m_view_mode == ViewMode::History ? " Jobs (history) " : " Jobs ";
+            = m_view_mode == ViewMode::History
+                  ? " Jobs (history, last "
+                        + std::to_string(m_config.job_view.history_days)
+                        + "d) "
+                  : " Jobs ";
         title += "(" + std::to_string(view.size());
         if (view.size() != m_jobs.size())
             title += "/" + std::to_string(m_jobs.size());
@@ -886,6 +899,7 @@ Slurmon::init_ui() noexcept
                           binding("C", "cancel parent job (array root)"),
                           binding("/", "search (id/name/state/time)"),
                           binding("t", "toggle live / history view"),
+                          binding("H", "widen history window (1/7/30/90/365d)"),
                           binding("s", "cycle sort (none→id→name→state→time)"),
                           binding("S", "toggle sort direction"),
                           binding("Esc", "clear active filter"),
@@ -1007,6 +1021,25 @@ Slurmon::init_ui() noexcept
             return true;
         }
 
+        if (event == Event::Character('H') && m_view_mode == ViewMode::History)
+        {
+            static const int steps[] = {1, 7, 30, 90, 365};
+            int next                 = steps[0];
+            for (int s : steps)
+                if (s > m_config.job_view.history_days)
+                {
+                    next = s;
+                    break;
+                }
+            m_config.job_view.history_days = next;
+            auto fresh                     = fetch_current();
+            std::lock_guard<std::mutex> lk(m_jobs_mutex);
+            m_jobs         = std::move(fresh);
+            m_view_dirty   = true;
+            m_selected_row = m_jobs.empty() ? -1 : 0;
+            return true;
+        }
+
         if (event == Event::Escape && !m_search_query.empty())
         {
             m_search_query.clear();
@@ -1037,7 +1070,7 @@ Slurmon::init_ui() noexcept
                     = ok ? "cancelled — refreshing…" : "scancel failed";
                 if (ok)
                 {
-                    auto fresh = fetch_jobs();
+                    auto fresh = fetch_current();
                     std::lock_guard<std::mutex> lk(m_jobs_mutex);
                     m_jobs       = std::move(fresh);
                     m_view_dirty = true;
@@ -1298,6 +1331,12 @@ Slurmon::init_config() noexcept
         if (tmp >= 1)
             m_config.job_view.refresh_interval = static_cast<int>(tmp);
     }
+    {
+        int64_t tmp = m_config.job_view.history_days;
+        load_config_field(toml, "job_view", "history_days", tmp);
+        if (tmp >= 1)
+            m_config.job_view.history_days = static_cast<int>(tmp);
+    }
 
     if (auto arr = toml["job_view"]["columns"].as_array())
     {
@@ -1351,6 +1390,8 @@ Slurmon::init_config() noexcept
     // CLI overrides win over the config file.
     if (m_refresh_interval_cli > 0)
         m_config.job_view.refresh_interval = m_refresh_interval_cli;
+    if (m_history_days_cli > 0)
+        m_config.job_view.history_days = m_history_days_cli;
 }
 
 // Build all rows for the job table
@@ -1550,6 +1591,16 @@ Slurmon::fetch_history_jobs()
     }
 
     std::string cmd = "sacct --noheader -X -P -o " + fields;
+    // sacct only reports jobs since midnight unless told otherwise; apply
+    // the lookback window unless the user supplied their own start time.
+    auto has_start = [&]
+    {
+        return m_sacct_args.find("-S") != std::string::npos
+               || m_sacct_args.find("--starttime") != std::string::npos;
+    };
+    if (!has_start())
+        cmd += " -S now-" + std::to_string(m_config.job_view.history_days)
+               + "days";
     if (!m_sacct_args.empty())
         cmd += " " + m_sacct_args;
     cmd += " 2>/dev/null";
@@ -1569,6 +1620,8 @@ Slurmon::fetch_history_jobs()
             continue;
         jobs.push_back(parse_row(line, idxs));
     }
+    // sacct lists oldest first; show the most recent submissions on top.
+    std::reverse(jobs.begin(), jobs.end());
     return jobs;
 }
 
@@ -1609,6 +1662,35 @@ Slurmon::fetch_log_paths(const std::string &job_id)
 
     result.stdout_path = extract("StdOut=");
     result.stderr_path = extract("StdErr=");
+
+    // scontrol forgets finished jobs after MinJobAge; fall back to the
+    // accounting database (StdOut/StdErr need Slurm >= 23.11).
+    if (result.stdout_path.empty() && result.stderr_path.empty())
+    {
+        std::string acmd = "sacct --noheader -X -P -j " + job_id
+                           + " -o StdOut,StdErr 2>/dev/null";
+        PipePtr apipe(popen(acmd.c_str(), "r"));
+        if (apipe)
+        {
+            std::string out = slurp_pipe(apipe.get());
+            pclose(apipe.release());
+            std::istringstream in(out);
+            std::string line;
+            if (std::getline(in, line))
+            {
+                auto bar = line.find('|');
+                if (bar != std::string::npos)
+                {
+                    result.stdout_path = line.substr(0, bar);
+                    result.stderr_path = line.substr(bar + 1);
+                    while (!result.stderr_path.empty()
+                           && (result.stderr_path.back() == '\r'
+                               || result.stderr_path.back() == ' '))
+                        result.stderr_path.pop_back();
+                }
+            }
+        }
+    }
     return result;
 }
 

@@ -8,6 +8,7 @@ SLURM monitoring utility
 - Cancel jobs
 - View job details
 - View job logs (stdout and stderr)
+- Browse previously submitted jobs from SLURM accounting (`t` for history, `H` to widen the window)
 
 # Screenshot
 

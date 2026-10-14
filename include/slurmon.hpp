@@ -89,6 +89,7 @@ private:
     std::string m_sacct_args;
     std::string m_scancel_args;
     int m_refresh_interval_cli = -1;
+    int m_history_days_cli     = -1;
 
     Config m_config;
 };

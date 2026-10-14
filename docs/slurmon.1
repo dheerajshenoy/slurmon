@@ -51,6 +51,13 @@ Extra arguments prepended to the
 invocation before the job id (e.g.
 .BR \-\-signal=TERM ).
 .TP
+.BI \-\-history\-days \ DAYS
+How many days back the history view looks (integer, minimum 1). Overrides
+.B job_view.history_days
+from the config file. Ignored when
+.B \-\-sacct\-args
+contains its own start time.
+.TP
 .BR \-r ", " \-\-refresh\-interval " " \fISECONDS\fR
 Seconds between
 .B squeue
@@ -89,6 +96,9 @@ Enter search mode (matches id, name, state, time).
 .TP
 .B t
 Toggle between the live and history view.
+.TP
+.B H
+In the history view, widen the lookback window (1, 7, 30, 90, 365 days).
 .TP
 .B s
 Cycle the sort key (none, id, name, state, time).
